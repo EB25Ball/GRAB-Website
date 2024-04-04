@@ -117,7 +117,22 @@
                 z-index: 100;
                 display:block;
             }
+            #report-take-image{
+                display: none;
+                width: 120px;
+                height:  30px;
+                font-weight: bold;
+                border-radius: 0.75em;
+                box-sizing: border-box;
+                text-decoration: none;
+                background-color: blue;
+                color: #FFFFFF;
+                text-align: center;
+                border: none;
+                float: right;
+                margin-right: 1em;
 
+            }
             #buttons form input {
                 cursor: pointer;
             }
@@ -150,6 +165,20 @@
             }
 
             .copy-button {
+                width: 120px;
+                height:  30px;
+                font-weight: bold;
+                border-radius: 2em;
+                box-sizing: border-box;
+                text-decoration: none;
+                background-color: #FFAE00;
+                color: #FFFFFF;
+                text-align: center;
+                border: none;
+                float: right;
+            }
+
+            .location-button {
                 width: 120px;
                 height:  30px;
                 font-weight: bold;
@@ -320,9 +349,9 @@
                 margin: 0 auto;
                 margin-top: 10px;
             }
-            #listButtons > button {
+            #listButtons > button  {
                 cursor: pointer;
-                width: 80px;
+                width: 100px;
                 height: 30px;
                 font-weight: bold;
                 border-radius: 2em;
@@ -333,8 +362,11 @@
                 text-align: center;
                 border: none;
             }
-            #hideButton, #unverifyButton, #verifySkipSuccessButton {
+            #hideButton, #unverifyButton, #verifySkipSuccessButton, #reportButton   {
                 height: 30px;
+                width: fit-content;
+                padding-right: 20px;
+                padding-left: 20px;
                 font-weight: bold;
                 background-color: red;
                 color: white;
@@ -342,6 +374,35 @@
                 border-radius: 15px;
                 cursor: pointer;
             }
+
+            #startButton  {
+                cursor: pointer;
+                width: 100px;
+                height: 30px;
+                font-weight: bold;
+                border-radius: 2em;
+                box-sizing: border-box;
+                text-decoration: none;
+                background-color: #00BC87;
+                color: #FFFFFF;
+                text-align: center;
+                border: none;
+            }
+
+            #finishButton  {
+                cursor: pointer;
+                width: 100px;
+                height: 30px;
+                font-weight: bold;
+                border-radius: 2em;
+                box-sizing: border-box;
+                text-decoration: none;
+                background-color: #FA8072;
+                color: #FFFFFF;
+                text-align: center;
+                border: none;
+            }
+
             #hideReason {
                 height: 30px;
                 font-weight: bold;
@@ -349,7 +410,7 @@
                 border-radius: 15px;
                 cursor: pointer;
             }
-            .creatorButton, #verifyButton, #verifySkipButton {
+            .creatorButton, #approveButton, #verifyButton, #verifySkipButton {
                 height: 30px;
                 font-weight: bold;
                 width: fit-content;
@@ -380,20 +441,93 @@
 				border: 3px solid grey;
 				padding: 10px;
 			}
-
+            #popup-thumbnail{
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                cursor: pointer;
+                border-radius: 10px;
+                border: 3px solid grey;
+                overflow: hidden;
+                width:  97.5%;
+            }
+            #popup-report-image{
+                filter: brightness(1); 
+                transition: filter 0.3s ease; 
+                width: 100%;
+            }
+            #popup-thumbnail:hover  #popup-report-image {
+                filter: brightness(0.5);
+            }
+            #report-set-image{
+                position: absolute;
+                background: blue;
+                color: white;
+                cursor: pointer;
+                border: none;
+                transform: scale(2); /* Scale button by 2x */
+                border-radius: 5px;
+            }
+            #report-set-image span {
+                transform: scale(0.75); 
+                display: inline-block;
+            }
+            .report-set-image {
+                opacity: 0;
+                transition: opacity 0.3s ease; 
+            }
+            #popup-thumbnail:hover .report-set-image{
+                opacity: 1;
+            }
 			.popup[open="open"]
 			{
 				display: block;
 			}
-            #report\ button{
-                width: 7%;
-                height: 7%;
-                cursor: pointer;
-            }
+
             .previewImage {
                 border-radius: 15px;
                 width: 100%;
             }
+            #applyLeaderboardModifications {
+                font-weight: bold;
+                box-sizing: border-box;
+                text-decoration: none;
+                background-color: #f15a5a;
+                color: #FFFFFF;
+                text-align: center;
+                border: none;
+                cursor: pointer;
+                margin-inline: 5px;
+                display: none;
+            }
+            .leaderboard-row.leaderboard-row-removed {
+                background-color: #FA8072;
+            }
+
+            .terms-container {
+                position: fixed;
+                bottom: 10px;
+                right: 10px;
+                background-color: #ffffff40;
+                border-radius: 15px;
+            }
+
+            .terms-link {
+                display: inline-block;
+                margin-left: 10px;
+                margin-right: 10px;
+                text-decoration: none;
+                color: #000;
+                font-family: 'Roboto', sans-serif;
+                font-weight: normal;
+                font-size: 14px;
+                transition: color 0.3s;
+            }
+
+            .terms-link:hover {
+                color: #555; /* Change hover color as needed */
+            }
+
         </style>
     </head>
     <body>
@@ -402,6 +536,12 @@
 
         <div class="popup" id="popup">
 			<div class="popup-inner">
+
+<div id="popup-thumbnail">
+    <img src="./textures/preview_image_placeholder.png" id="popup-report-image">
+    <button id="report-set-image"><span>Set Image</span></button>
+</div>
+
 				<div class="cell-title" id="popup-title"></div><br>
 				<div class="cell-description" id="popup-description"></div><br>
 				<form>
@@ -416,11 +556,13 @@
         <div id="buttons" class="buttons">
         <form>
             <input type="button" id="back-button" class="back-button" value="User Levels">
-            <input type="button" value="FULLSCREEN" id="fullscreen" class="fullscreen-button">
+            <input type="button" value="Fullscreen" id="fullscreen" class="fullscreen-button">
             <input type="button" id="fog-button" class="fog-button" value="Toggle Fog">
+            <input type="button" id="location-button" class="location-button" value="Copy POV URL">
             <input type="button" id="copy-button" class="copy-button" value="Copy Level URL">
             <input type="button" id="leaderboard-button" value="Leaderboard">
             <input type="button" id="download-button" class="download-button" value="Download as GLTF">
+            <input type="button" id="report-take-image" class="report-take-image" value="Take Image">
         </form>
         </div>
         
@@ -442,15 +584,14 @@
         <div id="players rated count">players rated count</div>
         <div id="players liked count">players liked count</div>
         <div id="average time">average time</div>
-        <img id="report button" display="none" src="../../src/assets/report.svg">
+        <button id="reportButton" style="display: none; margin-top: 5px;">Report</button>
         <br>
-        <div id="go to start"></div>
-        <br style="display: block;content: '';margin-top: 0.5em; ">
-        <div id="go to finish"></div>
+        <button id="startButton" class="startButton"></button>
+        <button id="finishButton" class="finishButton"></button>
         <br>
         <div id="listButtons" style="display: none;">
-            <button id="prevListItem">BACK</button>
-            <button id="nextListItem">NEXT</button>
+            <button id="prevListItem">Back</button>
+            <button id="nextListItem">Next</button>
             <p><span id="currentListItem"></span> / <span id="totalListItems"></span></p>
         </div>
         <br>
@@ -476,11 +617,11 @@
                         <option id="level_glitch" value="level_glitch">Requires to use a Glitch to finish</option>
                         <option id="level_other" value="level_other">Other</option>
                         <option id="no_punish" value="no_punish">Don't punish</option>
-                        <option id="approve" value="approve">Approve</option>
                     </select>
                 </form>
                 <br>
-                <button id="hideButton">Apply</button>
+                <button id="hideButton">Hide</button>
+                <button id="approveButton">Approve</button>
                 <br><br>
             </div>
         </div>
@@ -496,6 +637,13 @@
             <div class="leaderboard-header">Leaderboard</div>
             <div id="leaderboard-content" class="leaderboard-content"></div>
             <div class="leaderboard-close" id="leaderboard-close">&times;</div>
+            <button id="applyLeaderboardModifications">Confirm</button>
+        </div>
+
+        <div class="terms-container">
+            <a href="https://slindev.com/legalnotice" class="terms-link">Legal Notice</a>
+            <a href="https://slindev.com/terms" class="terms-link">EULA</a>
+            <a href="https://slindev.com/privacy" class="terms-link">Privacy Policy</a>
         </div>
     </body>
 </html>
