@@ -49,6 +49,7 @@ let isSliderDragging = false;
 let particles = [];
 let particlesPositions = [];
 let particlesDirections = [];
+let removedTimes = [];
 
 init();
 
@@ -89,12 +90,13 @@ function init()
 {
 	document.getElementById('back-button').addEventListener('click', backButtonPressed);
 	document.getElementById('copy-button').addEventListener('click', copyLevelURLPressed);
+	document.getElementById('location-button').addEventListener('click', copyLocationURLPressed);
 	document.getElementById('download-button').addEventListener('click', exportLevelAsGLTF);
 	document.getElementById("fog-button").addEventListener("click", toggleFog);
 
 	THREE.ColorManagement.enabled = true;
 
-	renderer = new THREE.WebGLRenderer({ antialias: true });
+	renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	renderer.outputColorSpace = THREE.SRGBColorSpace;
 	renderer.setClearColor(new THREE.Color(143.0/255.0, 182.0/255.0, 221.0/255.0), 1.0);
@@ -372,19 +374,6 @@ function init()
 						const reason = document.getElementById("hideReason").value;
 						const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
 
-						if (reason === 'approve') {
-							(async () => {
-								const approveResponse = await fetch(config.SERVER_URL + 'ignore_reports/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
-								const approveResponseBody = await approveResponse.text();
-								if(approveResponse.status != 200 || approveResponseBody !== 'Success') {
-									confirm("Error: " + approveResponseBody);
-								} else {
-									hideContainer.style.display = "none";
-								}
-							})();
-							return;
-						}
-
 						const hideResponse = await fetch(config.SERVER_URL + 'hide/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
 						const hideResponseBody = await hideResponse.text();
 						if (hideResponse.status != 200 || hideResponseBody !== 'Success') {
@@ -392,7 +381,6 @@ function init()
 						} else {
 							hideContainer.style.display = "none";
 						}
-
 						if (reason !== "no_punish") {
 							let extra = ''
 							if (reason === "level_glitch") {
@@ -414,12 +402,27 @@ function init()
 					})();
 				});
 
+				const approveButton = document.getElementById("approveButton");
+				approveButton.addEventListener("click", function() {
+					(async () => {
+						const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
+
+						const approveResponse = await fetch(config.SERVER_URL + 'ignore_reports/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
+						const approveResponseBody = await approveResponse.text();
+						if(approveResponse.status != 200 || approveResponseBody !== 'Success') {
+							confirm("Error: " + approveResponseBody);
+						} else {
+							hideContainer.style.display = "none";
+						}
+					})();
+				});
+
 				( async () => {
 					const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
 					const reportsResponse = await fetch(config.SERVER_URL + 'report_info/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
 					let reports_data = await reportsResponse.text();
 					if(reportsResponse.status != 200 || reports_data === 'Not authorized!') {
-						confirm("Error: " + reports_data);
+						//confirm("Error: " + reports_data);
 						return false;
 					}
 					reports_data = JSON.parse(reports_data);
@@ -429,9 +432,28 @@ function init()
 						const reportTitle = document.getElementById("reportsTitle");
 						reportTitle.innerText += `${reports_data.reported_score} (${reports_data.reported_count})`;
 						const reports = document.getElementById("reports");
-						reports_data = Object.entries(reports_data).filter(([key]) => key.includes('reported_score_'))
-						for (const report of reports_data) {
+						const reports_data_filtered = Object.entries(reports_data).filter(([key]) => key.includes('reported_score_'))
+						for (const report of reports_data_filtered) {
 							reports.innerHTML += `${report[0].slice(15)}:${report[1]}<br>`;
+						}
+					}
+
+					console.log(reports_data)
+
+					if(reports_data && "images" in reports_data) {
+						for(const image of reports_data.images)
+						{
+							let moderationImageElement = document.createElement("div");
+							var img = document.createElement("img");
+							img.src = 'https://grab-images.slin.dev/' + image.key;
+							moderationImageElement.appendChild(img);
+							moderationImageElement.appendChild(document.createElement("br"));
+							moderationImageElement.appendChild(document.createElement("br"));
+							moderationImageElement.onclick = function() {
+								console.log(image.camera_position)
+								camera.position.set(-image.camera_position[0], image.camera_position[1], -image.camera_position[2]);
+							}
+							moderationContainer.appendChild(moderationImageElement);
 						}
 					}
 				})();
@@ -442,7 +464,7 @@ function init()
 				let creatorButton = document.createElement("button");
 				creatorButton.className = "creatorButton";
 				moderationContainer.appendChild(creatorButton);
-				creatorButton.innerHTML = "<b>MAKE CREATOR</b>";
+				creatorButton.innerHTML = "<b>Make Creator</b>";
 				creatorButton.onclick = function () {
 				  	(async () => {
 						let response = await fetch(config.SERVER_URL + 'set_user_info_admin/' + levelIdentifierParts[0] + '?access_token=' + accessToken + '&is_creator=true');
@@ -550,6 +572,10 @@ function init()
 			let realComplexity = 0;
 
 			const loadLevelNodes = function(nodes, parentNode){
+
+				let cameraPosition = undefined
+				let cameraRotation = undefined
+
 				for(let node of nodes)
 				{
 					let object = undefined
@@ -728,9 +754,9 @@ function init()
 						object.initialPosition = object.position.clone()
 						object.initialRotation = object.quaternion.clone()
 
-						camera.position.set(object.position.x, object.position.y + 2.0, object.position.z);
+						cameraPosition = [object.position.x, object.position.y + 2.0, object.position.z]
 						
-						var goToStartLabel = document.getElementById("go to start");
+						var goToStartLabel = document.getElementById("startButton");
 						goToStartLabel.innerHTML = "Go to Start"
 						goToStartLabel.style.cursor="pointer";
 						goToStartLabel.onclick = function() {
@@ -751,7 +777,7 @@ function init()
 						object.initialPosition = object.position.clone()
 						object.initialRotation = object.quaternion.clone()
 
-						var goToFinishLabel = document.getElementById("go to finish");
+						var goToFinishLabel = document.getElementById("finishButton");
 						goToFinishLabel.innerHTML = "Go to Finish"
 						goToFinishLabel.style.cursor="pointer";
 
@@ -814,10 +840,29 @@ function init()
 					const slider = document.getElementById("time-slider")
 					slider.style.display = "block"
 				}
+
+				let cameraPositionFromUrl = urlParams.get('camera_position');
+				let cameraRotationFromUrl = urlParams.get('camera_rotation');
+				if(cameraPositionFromUrl && cameraRotationFromUrl)
+				{
+					cameraPosition = cameraPositionFromUrl.split(',').map(parseFloat);
+					cameraRotation = cameraRotationFromUrl.split(',').map(parseFloat);
+				}
+
+				if(cameraPosition)
+				{
+					camera.position.set(cameraPosition[0], cameraPosition[1], cameraPosition[2]);
+				}
+
+				if(cameraRotation)
+				{
+					controls.eulerVector.x = cameraRotation[0];
+					controls.eulerVector.y = cameraRotation[1];
+					controls.updateRotationVector();
+				}
 			};
 
 			loadLevelNodes(decoded.levelNodes, scene);
-
 
 			//Creating these as text elements to prevent embeded html to be rendered by the browser
 			const titleTitleNode = document.createTextNode('title: ');
@@ -911,12 +956,14 @@ function init()
 					: timeLabel.innerHTML = "average time: <b>N/a</b>"
 
 				if(userStore.isLoggedIn){
-					var reportButton = document.getElementById("report button")
-					reportButton.style.display='block';
-						levelIdentifier = detailResponseBody.data_key.split(':')
-						levelIdentifier.splice(0, 1)
-						levelIdentifier = levelIdentifier.join('/')
-						reportButton.onclick = function () {
+					var reportButton = document.getElementById("reportButton")
+					reportButton.style.display='block'
+					levelIdentifier = detailResponseBody.data_key.split(':')
+					levelIdentifier.splice(0, 1)
+					levelIdentifier = levelIdentifier.join('/')
+
+					reportButton.addEventListener("click", function() {
+						(async () => {
 							let reasonMapping = {
 								sexual: "Sexual Content / Genitals",
 								violence: "Detailed Violence",
@@ -925,9 +972,16 @@ function init()
 								glitch: "Requires to use a Glitch to finish",
 								other: "Other"
 							}
-							let onOk = function(value) {
+							let onOk = function(value, image) {
 								(async () => {
-									let response = await fetch(config.SERVER_URL + 'report/' + levelIdentifier + '?access_token=' +  userStore.accessToken + '&reason=' + value);
+									let response = await fetch(config.SERVER_URL + 'report/' + levelIdentifier + '?access_token=' +  userStore.accessToken + '&reason=' + value, {
+										method: 'POST',
+										  headers: {
+										    'Content-Type': 'application/json'
+										  },
+										  body: image
+										})
+									
 									let responseBody = await response.text();
 									console.log(responseBody);
 									confirm(response.status == 200? "Success" : "Error: Need to login again?");
@@ -937,49 +991,100 @@ function init()
 									}
 								})()
 							}
-							showOptionsDialog("Report Level", "Why should this level be removed?", reasonMapping, onOk)
-					}
+							showOptionsDialog("Report Level", "Why should this level be removed?", reasonMapping, onOk, false, undefined)
+						})();
+					});
 				}
-				})()
+			})()
 		})()
 	});
 }
-function showOptionsDialog(title, subtitle, options, onOk)
+function showOptionsDialog(title, subtitle, options, onOk, imageRequired, reasonValue)
 {
 	let dialog = document.getElementById('popup')
 	let titleElement = document.getElementById('popup-title')
 	let descriptionElement = document.getElementById('popup-description')
 	let reasonSelector = document.getElementById('popup-reason')
+	let imageContext = document.getElementById('popup-thumbnail')
+	let imagePreview = document.getElementById('popup-report-image')
 	let closeButton = document.getElementById('popup-button-cancel')
 	let okButton = document.getElementById('popup-button-ok')
+	let setImageBtn = document.getElementById('report-set-image')
+	let reportCaptureBtn  = document.getElementById('report-take-image')
 
 	titleElement.innerHTML = title
 	descriptionElement.innerHTML = subtitle
+	reasonSelector.style.display='none'
+	imageContext.style.display="none"
+	reportCaptureBtn.style.display="none"
+	okButton.style.display="initial"
 
-	reasonSelector.innerHTML = ""
-	let selectOption = document.createElement("option")
-	selectOption.innerHTML = "- Select -"
-	reasonSelector.appendChild(selectOption)
+	if (imageRequired == true) {
+		imageContext.style.display = "flex"
+		okButton.style.display = "none"
 
-	for(let key in options)
-	{
-		let option = document.createElement("option")
-		option.innerHTML = options[key]
-		option.value = key
-		reasonSelector.appendChild(option)
+		imageContext.addEventListener("click", function() {
+			dialog.removeAttribute('open')
+			reportCaptureBtn.style.display ='block'
+		})
+
+		reportCaptureBtn.addEventListener("click", function() 
+		{	
+			var tempCanvas = document.createElement('canvas')
+			tempCanvas.width = 512
+			tempCanvas.height = 288
+
+			let ctx = tempCanvas.getContext('2d')
+			ctx.drawImage(canvas, 0, 0, 512, 288)
+
+			setImageBtn.classList.add('report-set-image')
+			reportCaptureBtn.style.display='none'
+			dialog.setAttribute('open','open')
+			okButton.style.display = 'initial'
+
+			tempCanvas.toBlob(function(blob) {
+				imagePreview.src = URL.createObjectURL(blob)
+				okButton.onclick = function() {
+					dialog.removeAttribute('open')
+					onOk(reasonValue, blob)
+					tempCanvas.remove()
+					setImageBtn.classList.remove('report-set-image')
+
+				}
+			});			
+
+		})
 	}
-			
+	if(options !== undefined){
+
+		reasonSelector.style.display='block';
+		reasonSelector.innerHTML = ""
+
+		let selectOption = document.createElement("option")
+		selectOption.innerHTML = "- Select -"
+		reasonSelector.appendChild(selectOption)
+
+		for(let key in options)
+		{
+			let option = document.createElement("option")
+			option.innerHTML = options[key]
+			option.value = key
+			reasonSelector.appendChild(option)
+		}
+	}
 	if(!dialog.hasAttribute('open'))
-	{
+	{	
 		// show the dialog 
 		dialog.setAttribute('open','open');
 
-		closeButton.onclick = function(event) { dialog.removeAttribute('open'); reasonSelector.selectedIndex = 0; }
+		closeButton.onclick = function(event) { dialog.removeAttribute('open'); options?reasonSelector.selectedIndex = 0:null; }
 		okButton.onclick = function(event) {
 				if(reasonSelector.selectedIndex === 0) return //Don't allow to report without a reason!
 				dialog.removeAttribute('open');
-				onOk(reasonSelector.value)
-				reasonSelector.selectedIndex = 0;
+				if(options !== undefined){
+					showOptionsDialog("Report Thumbnail", "Take a photo for the report in the map", undefined, onOk, true, reasonSelector.value)
+					reasonSelector.selectedIndex = 0;
+				}
 			}
 	}
 }
@@ -1165,7 +1270,22 @@ export function backButtonPressed()
 
 export async function copyLevelURLPressed()
 {
-	await navigator.clipboard.writeText(window.location.href);
+	const urlParams = new URLSearchParams(window.location.search);
+	const url = window.location.href.split("?")[0];
+	const levelID = urlParams.get("level");
+	await navigator.clipboard.writeText(url + "?level=" + levelID);
+}
+
+export function copyLocationURLPressed() {
+	const urlParams = new URLSearchParams(window.location.search);
+	const url = window.location.href.split("?")[0];
+	const levelID = urlParams.get("level");
+	const cameraPosition = camera.position;
+	const cameraRotation = controls.eulerVector;
+	const positionString = `camera_position=${cameraPosition.x},${cameraPosition.y},${cameraPosition.z}`;
+	const rotationString = `camera_rotation=${cameraRotation.x},${cameraRotation.y}`;
+	const newUrl = `${url}?level=${levelID}&${positionString}&${rotationString}`;
+	navigator.clipboard.writeText(newUrl); 
 }
 
 function saveDataAsFile(filename, data) {
@@ -1210,6 +1330,7 @@ export function exportLevelAsGLTF()
 
 document.getElementById("leaderboard-button").addEventListener("click", openLeaderboard);
 document.getElementById("leaderboard-close").addEventListener("click", closeLeaderboard);
+document.getElementById("applyLeaderboardModifications").addEventListener("click", removeLeaderboardTimes);
 
 function openLeaderboard() {
 	document.getElementById("overlay").style.display = "block";
@@ -1220,6 +1341,9 @@ function openLeaderboard() {
 function closeLeaderboard() {
 	document.getElementById("overlay").style.display = "none";
 	document.getElementById("leaderboard").style.display = "none";
+	removedTimes = [];
+	document.getElementById("applyLeaderboardModifications").style.display = "none";
+	document.getElementById("leaderboard-content").innerHTML = "";
 }
 
 async function loadLeaderboardData() {
@@ -1288,22 +1412,17 @@ function displayLeaderboardData(data) {
 			button.className = "leaderboard-button";
 			button.textContent = "x";
 			button.onclick = function () {
-				(async () => {
-					const urlParams = new URLSearchParams(window.location.search);
-					let levelIdentifier = urlParams.get('level');
-					let levelIdentifierParts = levelIdentifier.split(':')
-					const endpointUrl = config.SERVER_URL + 'statistics_remove_user/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?user_id=' + entry.user_id;
-					try {
-						const response = await fetch(endpointUrl, {headers: {'Authorization': 'Bearer ' + userStore.accessToken}});
-						if (response.ok) {
-							row.remove();
-						} else {
-							alert("Failed to remove user");
-						}
-					} catch (error) {
-						alert("Error removing user");
+				for (let i = 0; i < removedTimes.length; i++) {
+					if (removedTimes[i][0] === entry.user_id) {
+						removedTimes[i][1].classList.remove("leaderboard-row-removed");
+						removedTimes.splice(i, 1);
+						document.getElementById("applyLeaderboardModifications").style.display = removedTimes.length > 0 ? "block" : "none";
+						return;
 					}
-				})();
+				}
+				removedTimes.push([entry.user_id, row]);
+				row.classList.add("leaderboard-row-removed");
+				document.getElementById("applyLeaderboardModifications").style.display = "block";
 			};
 			
 
@@ -1314,4 +1433,28 @@ function displayLeaderboardData(data) {
 			leaderboardContent.appendChild(row);
 		});
 	}
+}
+async function removeLeaderboardTimes() {
+	const pinia = createPinia()
+	pinia.use(piniaPluginPersistedstate)
+	const app = createApp(App)
+	app.use(pinia)
+	const userStore = useUserStore(pinia)
+	const urlParams = new URLSearchParams(window.location.search);
+	let levelIdentifier = urlParams.get('level');
+	let levelIdentifierParts = levelIdentifier.split(':')
+	for (let i = 0; i < removedTimes.length; i++) {
+		const endpointUrl = config.SERVER_URL + 'statistics_remove_user/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?user_id=' + removedTimes[i][0];
+		try {
+			const response = await fetch(endpointUrl, {headers: {'Authorization': 'Bearer ' + userStore.accessToken}});
+			if (response.ok) {
+				removedTimes[i][1].remove();
+			} else {
+				alert("Failed to remove user");
+			}
+		} catch (error) {
+			alert("Error removing user: " + error.message);
+		}
+	}
+	removedTimes = [];
 }
