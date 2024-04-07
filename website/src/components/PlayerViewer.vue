@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user'
 import * as THREE from "https://unpkg.com/three@0.138.0/build/three.module.js"
 import { SGMLoader } from "../assets/sgmLoader.js";
 import { OrbitControls } from "../assets/OrbitContols.js";
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
 import { getShopCatalogRequest } from '../requests/GetShopCatalogRequest.js';
 import { getShopProductsRequest } from '../requests/GetShopProductsRequest.js';
@@ -132,7 +133,7 @@ export default {
         if (type == "hand" && this.clonedGroup) {
           this.activeCosmetics[type] = playerResponseBody.active_customizations.items ? (playerResponseBody.active_customizations.items[type] == undefined ? "player_basic_hand" : playerResponseBody.active_customizations.items[type]) : undefined
         }
-        if (this.activeCosmetics[type] !== undefined) {
+        if (this.activeCosmetics[type] !== undefined && this.activeCosmetics[type] !== "default") {
           renderPromises.push(await this.renderPlayer(this.activeCosmetics[type], type));
         }
       }
@@ -227,17 +228,13 @@ export default {
     async createPlayer() {
       const picker = document.getElementById("categories-content");
       const items = await getShopItemsRequest(this.$api_server_url);
-      let catalog = await getShopCatalogRequest(this.$api_server_url);
+      let catalogResponse = await getShopCatalogRequest(this.$api_server_url);
+      let catalog = catalogResponse[3].sections
       this.products = await getShopProductsRequest(this.$api_server_url);
       if (this.userInfo && !this.userInfo.active_customizations || this.userInfo && !this.userInfo.active_customizations.items && this.userInfo.active_customizations) {
         this.userInfo.active_customizations = { items: {} }
       }
       for (let category in catalog) {
-        if (
-          catalog[category].title !== "Item Packs" &&
-          catalog[category].title !== "Change Detail Color" &&
-          catalog[category].title !== "Change Main Color"
-        ) {
           if (catalog[category].title == "Head") {
             for (let index in catalog[category].sections) {
               this.processItemsAndSections(
@@ -255,8 +252,7 @@ export default {
               items
             );
           }
-        }
-      }
+       }
     },
 
     async handleContainerClick(e, rgbValue) {
@@ -1012,9 +1008,33 @@ export default {
     downloadPlayerPic() {
       let canvas = document.getElementById('player-model')
       let link = document.createElement('a');
-      link.download = 'filename.png';
+      link.download = 'player.png';
       link.href = canvas.toDataURL()
       link.click();
+    },
+
+    exportAsGLTF() {
+      const exporter = new GLTFExporter();
+      exporter.parse(
+        this.scene, 
+        function ( gltf ) {
+          const blob = new Blob([JSON.stringify(gltf)], {type: 'text/json'});
+          if(window.navigator.msSaveOrOpenBlob) {
+            window.navigator.msSaveBlob(blob, "player.gltf");
+          } else {
+            const elem = window.document.createElement('a');
+            elem.href = window.URL.createObjectURL(blob);
+            elem.download = "player.gltf";        
+            document.body.appendChild(elem);
+            elem.click();        
+            document.body.removeChild(elem);
+          }
+        },
+        function ( error ) {
+            console.log( 'An error happened' );
+        },
+        {}
+      );
     },
     
     setupThreeScene(item) {
@@ -1273,7 +1293,8 @@ export default {
 
 <template>
   <main id="body1" class="scopedAlternative">
-    <button class="buttons" id="download" @click="downloadPlayerPic">Download (.png)</button>
+    <button class="buttons" id="download" @click="downloadPlayerPic">↓ .png</button>
+    <button class="buttons" id="export" @click="exportAsGLTF">↓ .gltf</button>
     <a class="buttons" id="back" @click="handleGoBack">Back</a>
     <div id="player-container">
       <canvas class="player-model" id="player-model"></canvas>
@@ -1536,6 +1557,12 @@ main.scopedAlternative * {
   z-index: 3;
   width: 110px;
   top: 3.5em;
+}
+
+.scopedAlternative #export {
+  z-index: 3;
+  width: 110px;
+  top: 6em;
 }
 
 .scopedAlternative #back {
