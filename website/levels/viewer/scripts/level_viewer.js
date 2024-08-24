@@ -21,6 +21,7 @@ import modelPyramidURL from '../models/pyramid.gltf'
 import modelPrismURL from '../models/prism.gltf'
 import modelStartEndURL from '../models/start_end.gltf'
 import modelSignURL from '../models/sign.gltf'
+import modelConeURL from '../models/cone.gltf'
 
 import textureDefaultURL from '../textures/default.png'
 import textureGrabbableURL from '../textures/grabbable.png'
@@ -46,13 +47,16 @@ let materials = [];
 let objectMaterials = [];
 let isFogEnabled = true;
 let isSliderDragging = false;
+let isSliderPlaying = true;
 let particles = [];
 let particlesPositions = [];
 let particlesDirections = [];
+let removedTimes = [];
+let blob;
 
 init();
 
-function getMaterialForTexture(name, tileFactor, vertexShader, fragmentShader, specularColor=[0.3, 0.3, 0.3, 16.0], neonEnabled=0.0)
+function getMaterialForTexture(name, tileFactor, vertexShader, fragmentShader, specularColor=[0.3, 0.3, 0.3, 16.0], neonEnabled=0.0, isLava=0.0)
 {
 	let material = new THREE.ShaderMaterial();
 	material.vertexShader = vertexShader;
@@ -65,8 +69,11 @@ function getMaterialForTexture(name, tileFactor, vertexShader, fragmentShader, s
 		"diffuseColor": { value: [1.0, 1.0, 1.0] },
 		"worldNormalMatrix": { value: new THREE.Matrix3() },
 		"neonEnabled": { value: neonEnabled },
+		"transparentEnabled": { value: 0.0 },
 		"fogEnabled": { value: 1.0 },
-		"specularColor": { value: specularColor}
+		"specularColor": { value: specularColor},
+		"isLava": { value: isLava },
+		"isColoredLava": { value: 0.0 }
 	};
 
 	material.uniforms.colorTexture.value = textureLoader.load(name);
@@ -89,12 +96,13 @@ function init()
 {
 	document.getElementById('back-button').addEventListener('click', backButtonPressed);
 	document.getElementById('copy-button').addEventListener('click', copyLevelURLPressed);
+	document.getElementById('location-button').addEventListener('click', copyLocationURLPressed);
 	document.getElementById('download-button').addEventListener('click', exportLevelAsGLTF);
 	document.getElementById("fog-button").addEventListener("click", toggleFog);
 
 	THREE.ColorManagement.enabled = true;
 
-	renderer = new THREE.WebGLRenderer({ antialias: true });
+	renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	renderer.outputColorSpace = THREE.SRGBColorSpace;
 	renderer.setClearColor(new THREE.Color(143.0/255.0, 182.0/255.0, 221.0/255.0), 1.0);
@@ -118,6 +126,8 @@ function init()
 	shapePromises.push(getGeometryForModel(modelCylinderURL));
 	shapePromises.push(getGeometryForModel(modelPyramidURL));
 	shapePromises.push(getGeometryForModel(modelPrismURL));
+	shapePromises.push(getGeometryForModel(modelConeURL));
+
 	let shapePromise = Promise.all(shapePromises).then(function(result){
 		for(let shape of result)
 		{
@@ -138,7 +148,7 @@ function init()
 	materials.push(getMaterialForTexture(textureDefaultURL, 1.0, SHADERS.levelVS, SHADERS.levelFS, [0.4, 0.4, 0.4, 64.0]));
 	materials.push(getMaterialForTexture(textureGrabbableURL, 1.0, SHADERS.levelVS, SHADERS.levelFS, [0.2, 0.2, 0.2, 16.0]));
 	materials.push(getMaterialForTexture(textureIceURL, 0.1, SHADERS.levelVS, SHADERS.levelFS, [0.6, 0.6, 0.6, 64.0]));
-	materials.push(getMaterialForTexture(textureLavaURL, 0.1, SHADERS.levelVS, SHADERS.levelFS, [0.0, 0.0, 0.0, 1.0]));
+	materials.push(getMaterialForTexture(textureLavaURL, 0.1, SHADERS.levelVS, SHADERS.levelFS, [0.0, 0.0, 0.0, 1.0], 0.0, 1.0));
 	materials.push(getMaterialForTexture(textureWoodURL, 1.0, SHADERS.levelVS, SHADERS.levelFS, [0.2, 0.2, 0.2, 32.0]));
 	materials.push(getMaterialForTexture(textureGrapplableURL, 0.1, SHADERS.levelVS, SHADERS.levelFS, [0.3, 0.3, 0.3, 32.0]));
 	materials.push(getMaterialForTexture(textureGrapplableLavaURL, 0.1, SHADERS.levelVS, SHADERS.levelFS, [0.0, 0.0, 0.0, 1.0]));
@@ -193,9 +203,10 @@ function init()
 			const app = createApp(App)
 			app.use(pinia)
 			const userStore = useUserStore(pinia)
-			let { accessToken, list, listIndex } = userStore;
+			let { accessToken, list, listIndex, favoriteLevels } = userStore;
 
 			var titleLabel = document.getElementById("title");
+			var tagsLabel = document.getElementById("tags");
 			var creatorsLabel = document.getElementById("creators");
 			var descriptionLabel = document.getElementById("description");
 			var complexityLabel = document.getElementById("complexity");
@@ -214,7 +225,15 @@ function init()
 			userID = levelIdentifierParts[0];
 			console.log(userID);
 
-			if(detailResponseBody.hidden === true && !userStore.isAdmin)
+			if("tags" in detailResponseBody && detailResponseBody.tags.length > 0) {
+				detailResponseBody.tags.forEach(tag => {
+					if (tag !== 'ok') {
+						tagsLabel.innerHTML += '<span class="tag">' + tag + '</span>';
+					}
+				});
+			}
+
+			if(detailResponseBody.hidden === true && !userStore.isSuperModerator)
 			{
 				//Don't load hidden levels unless this is an admin
 				titleLabel.innerHTML = '<b>NOT AVAILABLE</b>';
@@ -289,6 +308,104 @@ function init()
 				}
 			}
 
+			if(userStore.isLoggedIn && (userStore.isVerifier || userStore.userID === userID))
+			{
+				const tagButton = document.getElementById("tagButton");
+				const tagMenu = document.getElementById("tagMenu");
+				const tagMenuInner = document.getElementById("tagMenuInner");
+				let levelUserTags = [];
+				if("tags" in detailResponseBody && detailResponseBody.tags.length > 0) {
+					levelUserTags = detailResponseBody.tags;
+				}
+
+				tagButton.style.display = "block";
+				tagButton.addEventListener("click", async () => {
+					tagMenuInner.innerHTML = "";
+					const levelBrowserResponse = await fetch(config.SERVER_URL + 'get_level_browser?version=1');
+					const levelBrowserResponseBody = await levelBrowserResponse.text();
+					if(levelBrowserResponse.status != 200) {
+						alert(levelBrowserResponseBody);
+					}
+					const levelBrowser = JSON.parse(levelBrowserResponseBody);
+					const tags = levelBrowser.tags;
+					const tagCheckboxes = [];
+					for (const tag of tags) {
+						const tagDiv = document.createElement("div");
+						
+						const checkbox = document.createElement("input");
+						checkbox.type = "checkbox";
+						checkbox.id = `tag-${tag}`;
+						checkbox.name = `tag-${tag}`;
+						tagDiv.appendChild(checkbox);
+
+						checkbox.addEventListener("change", (e) => {
+							if (e.target.checked) {
+								let currentChecked = 0;
+								for(const checkbox of tagCheckboxes) {
+                                    if (checkbox.checked) {
+                                        currentChecked++;
+                                    }
+                                }
+								if (currentChecked > 2) {
+                                    e.target.checked = false;
+                                }
+							}
+						});
+
+						const label = document.createElement("label");
+						label.innerHTML = tag;
+						label.htmlFor = `tag-${tag}`;
+						tagDiv.appendChild(label);
+
+						tagCheckboxes.push(checkbox);
+						tagMenuInner.appendChild(tagDiv);
+
+						if (levelUserTags.includes(tag)) {
+							checkbox.checked = true;
+						}
+					}
+					const tagCount = tagCheckboxes.length;
+					if (tagCount % 3 !== 0) {
+						for (let i = 1; i < tagCount % 3; i++) {
+							tagMenuInner.appendChild(document.createElement("div"));
+						}
+                    }
+					const cancelTagsButton = document.createElement("button");
+					cancelTagsButton.id = "cancelTagsButton";
+					cancelTagsButton.innerHTML = "Cancel";
+					tagMenuInner.appendChild(cancelTagsButton);
+					cancelTagsButton.addEventListener("click", async () => {
+						tagMenu.style.display = "none";
+					});
+
+					tagMenuInner.appendChild(document.createElement("div"));
+
+					const submitTagsButton = document.createElement("button");
+					submitTagsButton.id = "submitTagsButton";
+					submitTagsButton.innerHTML = "Submit Tags";
+					tagMenuInner.appendChild(submitTagsButton);
+					submitTagsButton.addEventListener("click", async () => {
+						let checkedTags = [];
+						for(const checkbox of tagCheckboxes) {
+							if (checkbox.checked) {
+								checkedTags.push(checkbox.name.split("-")[1]);
+							}
+						}
+						levelUserTags = checkedTags
+						let tagString = checkedTags.join(",");
+						const response = await fetch(config.SERVER_URL + 'tag/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?user_tags=' + tagString + '&access_token=' + accessToken);
+						const responseBody = await response.text();
+						if (responseBody == "Success") {
+							tagMenu.style.display = "none";
+						} else {
+							confirm(responseBody);
+						}
+					});
+
+					tagMenu.style.display = "grid";
+				});
+			}
+
 			let moderationContainer = document.getElementById("moderationcontainer")
 			if(userStore.isVerifier === true)
 			{
@@ -296,6 +413,7 @@ function init()
 				const unverifyButton = document.getElementById("unverifyButton");
 				const verifySkipButton = document.getElementById("verifySkipButton");
 				const verifySkipSuccessButton = document.getElementById("verifySkipSuccessButton");
+
 				verifyButton.style.display = "block";
 				unverifyButton.style.display = "none";
 				if (window.location.href.includes('verify_queue')) {
@@ -314,9 +432,14 @@ function init()
 						}
 					}
 				}
+				let isLoadingVerification = false;
 				verifyButton.addEventListener("click", function() {
 					(async () => {
-						let response = await fetch(config.SERVER_URL + 'tag/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?tags=ok&access_token=' + accessToken);
+						if (isLoadingVerification) {
+							return;
+						}
+						isLoadingVerification = true;
+						let response = await fetch(config.SERVER_URL + 'tag/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?mod_tags=ok' + '&access_token=' + accessToken);
 						let responseBody = await response.text();
 						if (responseBody == "Success") {
 							verifyButton.style.display = "none";
@@ -334,11 +457,16 @@ function init()
 						} else {
 							confirm(responseQueueBody);
 						}
+						isLoadingVerification = false;
 					})();
 				});
 				unverifyButton.addEventListener("click", function() {
 					(async () => {
-						let response = await fetch(config.SERVER_URL + 'tag/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?tags=&access_token=' + accessToken);
+						if (isLoadingVerification) {
+                            return;
+                        }
+						isLoadingVerification = true;
+						let response = await fetch(config.SERVER_URL + 'tag/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?mod_tags=' + '&access_token=' + accessToken);
 						let responseBody = await response.text();
 						if (responseBody == "Success") {
 							verifyButton.style.display = "block";
@@ -346,10 +474,16 @@ function init()
 						} else {
 							confirm(responseBody);
 						}
+						isLoadingVerification = false;
 					})();
 				});
+				let wasSkipped = false;
 				verifySkipButton.addEventListener("click", function() {
 					(async () => {
+						if (wasSkipped) {
+							return;
+						}
+						wasSkipped = true;
 						let response = await fetch(config.SERVER_URL + 'remove_from_verification_queue/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?tags=&access_token=' + accessToken);
 						let responseBody = await response.text();
 						if (responseBody == "Success") {
@@ -362,7 +496,7 @@ function init()
 				});
 			}
 
-			if(userStore.isAdmin)
+			if(userStore.isSuperModerator)
 			{
 				const hideContainer = document.getElementById("hidecontainer");
 				hideContainer.style.display = "block";
@@ -372,19 +506,6 @@ function init()
 						const reason = document.getElementById("hideReason").value;
 						const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
 
-						if (reason === 'approve') {
-							(async () => {
-								const approveResponse = await fetch(config.SERVER_URL + 'ignore_reports/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
-								const approveResponseBody = await approveResponse.text();
-								if(approveResponse.status != 200 || approveResponseBody !== 'Success') {
-									confirm("Error: " + approveResponseBody);
-								} else {
-									hideContainer.style.display = "none";
-								}
-							})();
-							return;
-						}
-
 						const hideResponse = await fetch(config.SERVER_URL + 'hide/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
 						const hideResponseBody = await hideResponse.text();
 						if (hideResponse.status != 200 || hideResponseBody !== 'Success') {
@@ -393,7 +514,21 @@ function init()
 							hideContainer.style.display = "none";
 						}
 
-						if (reason !== "no_punish") {
+						let noPunish = (reason === 'no_punish')
+						if(reason === 'level_tips')
+						{
+							if("creation_timestamp" in detailResponseBody)
+							{
+								const timestamp = detailResponseBody.creation_timestamp
+								const banDate = new Date('April 15, 2024 00:00:00');
+								if(timestamp < banDate)
+								{
+									noPunish = true
+								}
+							}
+						}
+
+						if(!noPunish) {
 							let extra = ''
 							if (reason === "level_glitch") {
 								extra += "?reason=message&type=message&message=A+level+you+published+relies+on+a+glitch+that+is+not+working+anymore.+If+you+fix+the+level,+please+let+me+know+through+discord+or+tiktok+to+make+it+available+again."
@@ -414,12 +549,27 @@ function init()
 					})();
 				});
 
+				const approveButton = document.getElementById("approveButton");
+				approveButton.addEventListener("click", function() {
+					(async () => {
+						const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
+
+						const approveResponse = await fetch(config.SERVER_URL + 'ignore_reports/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
+						const approveResponseBody = await approveResponse.text();
+						if(approveResponse.status != 200 || approveResponseBody !== 'Success') {
+							confirm("Error: " + approveResponseBody);
+						} else {
+							hideContainer.style.display = "none";
+						}
+					})();
+				});
+
 				( async () => {
 					const identifierPath = levelIdentifierParts[0] + '/' + levelIdentifierParts[1]
 					const reportsResponse = await fetch(config.SERVER_URL + 'report_info/' + identifierPath, {headers: {'Authorization': 'Bearer ' + accessToken}})
 					let reports_data = await reportsResponse.text();
 					if(reportsResponse.status != 200 || reports_data === 'Not authorized!') {
-						confirm("Error: " + reports_data);
+						//confirm("Error: " + reports_data);
 						return false;
 					}
 					reports_data = JSON.parse(reports_data);
@@ -429,9 +579,38 @@ function init()
 						const reportTitle = document.getElementById("reportsTitle");
 						reportTitle.innerText += `${reports_data.reported_score} (${reports_data.reported_count})`;
 						const reports = document.getElementById("reports");
-						reports_data = Object.entries(reports_data).filter(([key]) => key.includes('reported_score_'))
-						for (const report of reports_data) {
+						const reports_data_filtered = Object.entries(reports_data).filter(([key]) => key.includes('reported_score_'))
+						for (const report of reports_data_filtered) {
 							reports.innerHTML += `${report[0].slice(15)}:${report[1]}<br>`;
+						}
+					}
+
+					console.log(reports_data)
+
+					if(reports_data && "images" in reports_data) {
+						for(const image of reports_data.images)
+						{
+							let moderationImageElement = document.createElement("div");
+							var img = document.createElement("img");
+							img.src = 'https://grab-images.slin.dev/' + image.key;
+							moderationImageElement.appendChild(img);
+							moderationImageElement.appendChild(document.createElement("br"));
+							moderationImageElement.appendChild(document.createElement("br"));
+							moderationImageElement.onclick = function() {
+								console.log(image.camera_position)
+								camera.position.set(-image.camera_position[0], image.camera_position[1], -image.camera_position[2]);
+								let quaternion = new THREE.Quaternion()
+								quaternion.x = image.camera_rotation[1]
+								quaternion.y = image.camera_rotation[2]
+								quaternion.z = image.camera_rotation[3]
+								quaternion.w = image.camera_rotation[0]
+
+								let euler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+								controls.eulerVector.x = euler.x
+								controls.eulerVector.y = (euler.y+Math.PI)
+								controls.updateRotationVector();
+							}
+							moderationContainer.appendChild(moderationImageElement);
 						}
 					}
 				})();
@@ -442,7 +621,7 @@ function init()
 				let creatorButton = document.createElement("button");
 				creatorButton.className = "creatorButton";
 				moderationContainer.appendChild(creatorButton);
-				creatorButton.innerHTML = "<b>MAKE CREATOR</b>";
+				creatorButton.innerHTML = "<b>Make Creator</b>";
 				creatorButton.onclick = function () {
 				  	(async () => {
 						let response = await fetch(config.SERVER_URL + 'set_user_info_admin/' + levelIdentifierParts[0] + '?access_token=' + accessToken + '&is_creator=true');
@@ -527,7 +706,7 @@ function init()
 					material.uniforms["cameraFogColor0"] = { value: [decoded.ambienceSettings.skyHorizonColor.r, decoded.ambienceSettings.skyHorizonColor.g, decoded.ambienceSettings.skyHorizonColor.b] }
 					material.uniforms["cameraFogColor1"] = { value: [decoded.ambienceSettings.skyZenithColor.r, decoded.ambienceSettings.skyZenithColor.g, decoded.ambienceSettings.skyZenithColor.b] }
 					material.uniforms["sunSize"] = { value: decoded.ambienceSettings.sunSize }
-					density = decoded.ambienceSettings.fogDDensity
+					density = decoded.ambienceSettings.fogDensity
 				}
 				else
 				{
@@ -550,6 +729,10 @@ function init()
 			let realComplexity = 0;
 
 			const loadLevelNodes = function(nodes, parentNode){
+
+				let cameraPosition = undefined
+				let cameraRotation = undefined
+
 				for(let node of nodes)
 				{
 					let object = undefined
@@ -632,22 +815,35 @@ function init()
 					}
 					else if(node.levelNodeStatic)
 					{
-						// console.log(node.levelNodeStatic.material)
 						let material = materials[Math.min(Math.max(node.levelNodeStatic.material, 0), materials.length-1)]
-						if(node.levelNodeStatic.material === root.COD.Types.LevelNodeMaterial.DEFAULT_COLORED && node.levelNodeStatic.isNeon)
-						{
-							material = objectMaterials[3] //Use neon material if this is a neon colored block
+
+						// Neon
+						if(node.levelNodeStatic.material === root.COD.Types.LevelNodeMaterial.DEFAULT_COLORED && node.levelNodeStatic.isNeon) {
+							material = objectMaterials[3]
 						}
 
 						let newMaterial = material.clone()
 						newMaterial.uniforms.colorTexture = material.uniforms.colorTexture
 
-						if(node.levelNodeStatic.material == root.COD.Types.LevelNodeMaterial.DEFAULT_COLORED && node.levelNodeStatic.color)
-						{
-							newMaterial.uniforms.diffuseColor.value = [node.levelNodeStatic.color.r, node.levelNodeStatic.color.g, node.levelNodeStatic.color.b]
+						// Transparent
+						if ((node.levelNodeStatic.material == root.COD.Types.LevelNodeMaterial.DEFAULT_COLORED || node.levelNodeStatic.material == root.COD.Types.LevelNodeMaterial.LAVA) && node.levelNodeStatic.isTransparent) {
+							newMaterial.transparent = true;
+							newMaterial.uniforms.transparentEnabled.value = 1.0;
+						}
 
-							const specularFactor = Math.sqrt(node.levelNodeStatic.color.r * node.levelNodeStatic.color.r + node.levelNodeStatic.color.g * node.levelNodeStatic.color.g + node.levelNodeStatic.color.b * node.levelNodeStatic.color.b) * 0.15
-							newMaterial.uniforms.specularColor.value = [specularFactor, specularFactor, specularFactor, 16.0]
+						if((node.levelNodeStatic.material == root.COD.Types.LevelNodeMaterial.DEFAULT_COLORED || node.levelNodeStatic.material === root.COD.Types.LevelNodeMaterial.LAVA) && node.levelNodeStatic.color1)
+						{
+							newMaterial.uniforms.diffuseColor.value = [node.levelNodeStatic.color1.r, node.levelNodeStatic.color1.g, node.levelNodeStatic.color1.b]
+
+							let specularFactor = Math.sqrt(node.levelNodeStatic.color1.r * node.levelNodeStatic.color1.r + node.levelNodeStatic.color1.g * node.levelNodeStatic.color1.g + node.levelNodeStatic.color1.b * node.levelNodeStatic.color1.b) * 0.15;
+							let specularColor = [specularFactor, specularFactor, specularFactor, 16.0];
+							if (node.levelNodeStatic.color2) {
+								specularColor = [node.levelNodeStatic.color2.r, node.levelNodeStatic.color2.g, node.levelNodeStatic.color2.b, node.levelNodeStatic.color2.a];
+								if (node.levelNodeStatic.material === root.COD.Types.LevelNodeMaterial.LAVA) {
+									newMaterial.uniforms.isColoredLava.value = 1.0;
+								}
+							}
+							newMaterial.uniforms.specularColor.value = specularColor;
 						}
 
 						object = new THREE.Mesh(shapes[node.levelNodeStatic.shape-1000], newMaterial)
@@ -722,19 +918,31 @@ function init()
 						object.position.y = node.levelNodeStart.position.y
 						object.position.z = -node.levelNodeStart.position.z
 
+						object.quaternion.x = node.levelNodeStart.rotation.x
+						object.quaternion.y = -node.levelNodeStart.rotation.y
+						object.quaternion.z = node.levelNodeStart.rotation.z
+						object.quaternion.w = -node.levelNodeStart.rotation.w
+
 						object.scale.x = node.levelNodeStart.radius * 2.0;
 						object.scale.z = node.levelNodeStart.radius * 2.0;
 
 						object.initialPosition = object.position.clone()
 						object.initialRotation = object.quaternion.clone()
 
-						camera.position.set(object.position.x, object.position.y + 2.0, object.position.z);
+						cameraPosition = [object.position.x, object.position.y + 2.0, object.position.z]
 						
-						var goToStartLabel = document.getElementById("go to start");
+						let euler = new THREE.Euler().setFromQuaternion(object.quaternion, 'XYZ');
+						euler.y += Math.PI;
+						cameraRotation = [0, euler.y];
+
+						var goToStartLabel = document.getElementById("startButton");
 						goToStartLabel.innerHTML = "Go to Start"
 						goToStartLabel.style.cursor="pointer";
 						goToStartLabel.onclick = function() {
 							camera.position.set(object.position.x, object.position.y + 2.0, object.position.z);
+							controls.eulerVector.x = 0
+							controls.eulerVector.y = euler.y
+							controls.updateRotationVector();
 						}
 					}
 					else if(node.levelNodeFinish)
@@ -751,7 +959,7 @@ function init()
 						object.initialPosition = object.position.clone()
 						object.initialRotation = object.quaternion.clone()
 
-						var goToFinishLabel = document.getElementById("go to finish");
+						var goToFinishLabel = document.getElementById("finishButton");
 						goToFinishLabel.innerHTML = "Go to Finish"
 						goToFinishLabel.style.cursor="pointer";
 
@@ -811,32 +1019,51 @@ function init()
 
 				if(animatedObjects.length > 0)
 				{
-					const slider = document.getElementById("time-slider")
-					slider.style.display = "block"
+					const slider = document.getElementById("animation-controls")
+					slider.style.display = "flex"
+				}
+
+				let cameraPositionFromUrl = urlParams.get('camera_position');
+				let cameraRotationFromUrl = urlParams.get('camera_rotation');
+				if(cameraPositionFromUrl && cameraRotationFromUrl)
+				{
+					cameraPosition = cameraPositionFromUrl.split(',').map(parseFloat);
+					cameraRotation = cameraRotationFromUrl.split(',').map(parseFloat);
+				}
+
+				if(cameraPosition)
+				{
+					camera.position.set(cameraPosition[0], cameraPosition[1], cameraPosition[2]);
+				}
+
+				if(cameraRotation)
+				{
+					controls.eulerVector.x = cameraRotation[0];
+					controls.eulerVector.y = cameraRotation[1];
+					controls.updateRotationVector();
 				}
 			};
 
 			loadLevelNodes(decoded.levelNodes, scene);
 
-
-			//Creating these as text elements to prevent embeded html to be rendered by the browser
-			const titleTitleNode = document.createTextNode('title: ');
-			titleLabel.appendChild(titleTitleNode);
 			const titleFormattingNode = document.createElement('b');
 			titleLabel.appendChild(titleFormattingNode);
 			const titleNode = document.createTextNode(decoded.title);
 			titleFormattingNode.appendChild(titleNode);
 
-			const creatorsTitleNode = document.createTextNode('creators: ');
-			creatorsLabel.appendChild(creatorsTitleNode);
+			if (detailResponseBody.scheduled_for_deletion) {
+				document.getElementById("scheduled_for_deletion").style.display = "flex";
+			}
+
 			const creatorsFormattingNode = document.createElement('i');
 			creatorsLabel.appendChild(creatorsFormattingNode);
-			const creatorsNode = document.createTextNode(decoded.creators);
+			const creatorsNode = document.createTextNode('by ' + decoded.creators);
 			creatorsFormattingNode.appendChild(creatorsNode);
 
-			const descriptionNode = document.createTextNode('description: ' + decoded.description);
+			const descriptionNode = document.createTextNode(decoded.description);
 			descriptionLabel.appendChild(descriptionNode);
-			const complexityNode = document.createTextNode('complexity: ' + decoded.complexity + ' (real: ' + realComplexity + ')');
+			const complexityNode = document.createTextNode('complexity: ' + realComplexity);
+			complexityLabel.title = decoded.complexity;
 			complexityLabel.appendChild(complexityNode);
 			const checkpointsNode = document.createTextNode('checkpoints: ' + decoded.maxCheckpointCount);
 			checkpointsLabel.appendChild(checkpointsNode);
@@ -844,9 +1071,13 @@ function init()
 			const creationDate = new Date(detailResponseBody.creation_timestamp);
 			const updatedDate = new Date(detailResponseBody.update_timestamp);
 			let dateString = "created: " + creationDate.toDateString()
-			if(creationDate.toDateString() !== updatedDate.toDateString()) dateString += " (updated: " + updatedDate.toDateString() + ")"
 			const dateNode = document.createTextNode(dateString);
 			dateLabel.appendChild(dateNode);
+			if(creationDate.toDateString() !== updatedDate.toDateString()) {
+				const updateNode = document.createTextNode("updated: " + updatedDate.toDateString());
+				dateLabel.appendChild(document.createElement("br"));
+				dateLabel.appendChild(updateNode);
+			}
 
 			//Show OK stamp on levels that have the tag
 			if("tags" in detailResponseBody && detailResponseBody.tags.length > 0)
@@ -876,7 +1107,6 @@ function init()
 				let linebreak = document.createElement("br");
 				infoNode.prepend(linebreak);
 			}
-			
 
 			//Get level statistics
 			(async () => {
@@ -887,31 +1117,210 @@ function init()
 				let response = await fetch(config.SERVER_URL + 'statistics/' + levelIdentifier);
 				let responseBody = await response.json();
 
-				var totalPlayedLabel = document.getElementById("total played count");
-				totalPlayedLabel.innerHTML = "total played count: <b>" + responseBody.total_played_count + "</b>"
-
 				var totalFinishedLabel = document.getElementById("total finished count");
-				totalFinishedLabel.innerHTML = "total finished count: <b>" + responseBody.total_finished_count + "</b>"
-
-				var playersPlayedLabel = document.getElementById("players played count");
-				playersPlayedLabel.innerHTML = "players played count: <b>" + responseBody.played_count + "</b>"
+				totalFinishedLabel.innerHTML = "total finished: <b>" + responseBody.total_finished_count + ' / ' + responseBody.total_played_count + "</b>"
 
 				var playersFinishedLabel = document.getElementById("players finished count");
-				playersFinishedLabel.innerHTML = "players finished count: <b>" + responseBody.finished_count + "</b>"
-
-				var playersRatedLabel = document.getElementById("players rated count");
-				playersRatedLabel.innerHTML = "players rated count: <b>" + responseBody.rated_count + "</b>"
+				playersFinishedLabel.innerHTML = "players finished: <b>" + responseBody.finished_count + ' / ' + responseBody.played_count + "</b>"
 
 				var playersLikedLabel = document.getElementById("players liked count");
-				playersLikedLabel.innerHTML = "players liked count: <b>" + responseBody.liked_count + "</b>"
+				playersLikedLabel.innerHTML = "players liked: <b>" + responseBody.liked_count + " / " + responseBody.rated_count + "</b>"
 
 				var timeLabel = document.getElementById("average time");
 				responseBody.average_time
-					? timeLabel.innerHTML = "average time: <b>" + responseBody.average_time + "</b>"
-					: timeLabel.innerHTML = "average time: <b>N/a</b>"
+					? timeLabel.innerHTML = "average time: <b>" + Math.round(responseBody.average_time*100)/100 + "s</b>"
+					: timeLabel.innerHTML = "average time: <b>N/a</b>";
+
+				if(userStore.isLoggedIn){
+					let favoriteButton = document.getElementById("favoriteButton");
+					let unfavoriteButton = document.getElementById("unfavoriteButton");
+					
+					if (userStore.favoriteLevels.includes(detailResponseBody.identifier)) {
+						unfavoriteButton.style.display = 'inline';
+					} else {
+						favoriteButton.style.display = 'inline';
+					}
+
+					favoriteButton.addEventListener("click", () => {
+						(async () => {
+							const response = await fetch(config.SERVER_URL + 'add_favorite_level?level_id=' + detailResponseBody.identifier + '&access_token=' + userStore.accessToken)
+							if(response.status != 200){
+								const responseBody = await response.text();
+								confirm("Error: " + responseBody);
+							} else {
+								favoriteButton.style.display = 'none';
+								unfavoriteButton.style.display = 'inline';
+								userStore.favoriteLevels.push(detailResponseBody.identifier);
+							}
+						})();
+					});
+
+					unfavoriteButton.addEventListener("click", () => {
+						(async () => {
+							const response = await fetch(config.SERVER_URL + 'remove_favorite_level?level_id=' + detailResponseBody.identifier + '&access_token=' + userStore.accessToken)
+							if(response.status != 200){
+								const responseBody = await response.text();
+								confirm("Error: " + responseBody);
+							} else {
+								favoriteButton.style.display = 'inline';
+								unfavoriteButton.style.display = 'none';
+								userStore.favoriteLevels.splice(userStore.favoriteLevels.indexOf(detailResponseBody.identifier), 1);
+							}
+						})();
+					});
+
+					let reportButton = document.getElementById("reportButton");
+					reportButton.style.display = 'inline';
+					levelIdentifier = detailResponseBody.data_key.split(':')
+					levelIdentifier.splice(0, 1)
+					levelIdentifier = levelIdentifier.join('/')
+
+					reportButton.addEventListener("click", function() {
+						(async () => {
+							let reasonMapping = {
+								sexual: "Sexual Content / Genitals",
+								violence: "Detailed Violence",
+								hatespeech: "Offensive Language",
+								loweffort: "Very low effort level",
+								glitch: "Requires to use a Glitch to finish",
+								tips: "Asking for Tips",
+								other: "Other"
+							}
+							let onOk = function(value, image) {
+								(async () => {
+									let response = await fetch(config.SERVER_URL + 'report/' + levelIdentifier + '?access_token=' +  userStore.accessToken + '&reason=' + value, {
+										method: 'POST',
+										  headers: {
+										    'Content-Type': 'application/json'
+										  },
+										  body: image
+										})
+									let responseBody = await response.text();
+									console.log(responseBody);
+									confirm(response.status == 200? "Success" : "Error: Need to login again?");
+									if(response.status != 200 &&  userStore.accessToken && responseBody === "Invalid Access Token")
+									{
+										logout();
+									}
+								})()
+							}
+							showOptionsDialog("Report Level", "Why should this level be removed?", reasonMapping, onOk)
+						})();
+					});
+				}
 			})()
 		})()
 	});
+}
+
+function showImageDialog(title, subtitle, onOk){
+	let dialog = document.getElementById('popup-2')
+	let titleElement = document.getElementById('popup-title-2')
+	let descriptionElement = document.getElementById('popup-description-2')
+	let reasonSelector = document.getElementById('popup-reason')
+	let imageContext = document.getElementById('popup-thumbnail')
+	let imagePreview = document.getElementById('popup-report-image')
+	let closeButton = document.getElementById('popup-button-cancel-2')
+	let okButton = document.getElementById('popup-button-ok-2')
+	let setImageBtn = document.getElementById('report-set-image')
+	let takeImageBtn  = document.getElementById('report-take-image')
+	var tempCanvas = document.getElementById('temp-canvas')
+	tempCanvas?tempCanvas.remove():tempCanvas=undefined
+
+	titleElement.innerHTML = title
+	descriptionElement.innerHTML = subtitle
+	okButton.style.display = "none"
+	takeImageBtn.display="initial"
+
+	function onClick(){
+		dialog.removeAttribute('open')
+		onOk(reasonSelector.value, blob)
+		setImageBtn.classList.remove('report-set-image')
+		if(tempCanvas){
+			tempCanvas.remove()
+		}
+	}
+
+	if(!imagePreview.src.includes("/textures/preview_image_placeholder.png")){
+		okButton.style.display = "initial"
+		okButton.onclick = onClick
+	}
+
+	imageContext.addEventListener("click", function() {
+		dialog.removeAttribute('open')
+		takeImageBtn.style.display ='block'
+	})
+
+	takeImageBtn.addEventListener("click", function() 
+	{	
+		var tempCanvas = document.createElement('canvas')
+		tempCanvas.id = "temp-canvas"
+		tempCanvas.width = 512
+		tempCanvas.height = 288
+
+		let ctx = tempCanvas.getContext('2d')
+		ctx.drawImage(canvas, 0, 0, 512, 288)
+
+		setImageBtn.classList.add('report-set-image')
+		takeImageBtn.style.display='none'
+		dialog.setAttribute('open','open')
+		okButton.style.display = 'initial'
+
+		tempCanvas.toBlob(function(imageBlob) {
+			imagePreview.src = URL.createObjectURL(imageBlob)
+			blob = imageBlob
+			okButton.onclick = onClick		
+		});			
+	})
+
+	if(!dialog.hasAttribute('open'))
+	{	
+		dialog.setAttribute('open','open');
+		closeButton.onclick = function(event) { dialog.removeAttribute('open'); options?reasonSelector.selectedIndex = 0:null; }
+	}
+}
+
+function showOptionsDialog(title, subtitle, options, onOk)
+{
+	let dialog = document.getElementById('popup')
+	let titleElement = document.getElementById('popup-title')
+	let descriptionElement = document.getElementById('popup-description')
+	let reasonSelector = document.getElementById('popup-reason')
+	let closeButton = document.getElementById('popup-button-cancel')
+	let okButton = document.getElementById('popup-button-ok')
+	let tempCanvas = document.getElementById('temp-canvas')
+	let takeImageBtn = document.getElementById('report-take-image')
+
+	takeImageBtn.style.display="none"
+	titleElement.innerHTML = title
+	descriptionElement.innerHTML = subtitle
+	tempCanvas?tempCanvas.remove():tempCanvas=undefined
+
+	reasonSelector.style.display='block';
+	reasonSelector.innerHTML = ""
+
+	let selectOption = document.createElement("option")
+	selectOption.innerHTML = "- Select -"
+	reasonSelector.appendChild(selectOption)
+	for(let key in options)
+	{
+		let option = document.createElement("option")
+		option.innerHTML = options[key]
+		option.value = key
+		reasonSelector.appendChild(option)
+	}
+	if(!dialog.hasAttribute('open'))
+	{	
+		// show the dialog 
+		dialog.setAttribute('open','open');
+
+		closeButton.onclick = function(event) { dialog.removeAttribute('open'); options?reasonSelector.selectedIndex = 0:null; }
+		okButton.onclick = function(event) {
+				if(reasonSelector.selectedIndex === 0) return //Don't allow to report without a reason!
+				dialog.removeAttribute('open');
+					showImageDialog("Report Thumbnail", "Take a photo for the report in the map", onOk)
+			}
+	}
 }
 
 function updateObjectAnimation(object, time)
@@ -977,20 +1386,29 @@ function onWindowResize()
 }
 
 document.getElementById('time-slider').addEventListener('input', function (){
-	isSliderDragging=true
+	isSliderDragging = true
 });
-
 document.getElementById('time-slider').addEventListener('mouseup', function(){
     isSliderDragging = false
 });
 document.getElementById('time-slider').addEventListener('touchend', function(){
     isSliderDragging = false
 });
+document.getElementById('play-pause').addEventListener('click', function(){
+    isSliderPlaying = !isSliderPlaying
+	if (isSliderPlaying) {
+		document.getElementById("pause").style.display = "flex";
+		document.getElementById("play").style.display = "none";
+	} else {
+		document.getElementById("play").style.display = "flex";
+		document.getElementById("pause").style.display = "none";
+	}
+});
 
 function animation()
 {
 	const delta = clock.getDelta();
-	if(isSliderDragging==true)
+	if(isSliderDragging)
 	{
 		for (let object of animatedObjects)
 		{
@@ -998,12 +1416,12 @@ function animation()
 		} 
 		animationTime=parseInt(document.getElementById('time-slider').value)
 	}
-	else
+	else if (isSliderPlaying)
 	{
-		controls.update(delta);
 		animationTime += delta;
 		document.getElementById('time-slider').value = animationTime
 	}
+	controls.update(delta);
 
 	for(let object of animatedObjects)
 	{
@@ -1095,7 +1513,22 @@ export function backButtonPressed()
 
 export async function copyLevelURLPressed()
 {
-	await navigator.clipboard.writeText(window.location.href);
+	const urlParams = new URLSearchParams(window.location.search);
+	const url = window.location.href.split("?")[0];
+	const levelID = urlParams.get("level");
+	await navigator.clipboard.writeText(url + "?level=" + levelID);
+}
+
+export function copyLocationURLPressed() {
+	const urlParams = new URLSearchParams(window.location.search);
+	const url = window.location.href.split("?")[0];
+	const levelID = urlParams.get("level");
+	const cameraPosition = camera.position;
+	const cameraRotation = controls.eulerVector;
+	const positionString = `camera_position=${cameraPosition.x},${cameraPosition.y},${cameraPosition.z}`;
+	const rotationString = `camera_rotation=${cameraRotation.x},${cameraRotation.y}`;
+	const newUrl = `${url}?level=${levelID}&${positionString}&${rotationString}`;
+	navigator.clipboard.writeText(newUrl); 
 }
 
 function saveDataAsFile(filename, data) {
@@ -1140,6 +1573,7 @@ export function exportLevelAsGLTF()
 
 document.getElementById("leaderboard-button").addEventListener("click", openLeaderboard);
 document.getElementById("leaderboard-close").addEventListener("click", closeLeaderboard);
+document.getElementById("applyLeaderboardModifications").addEventListener("click", removeLeaderboardTimes);
 
 function openLeaderboard() {
 	document.getElementById("overlay").style.display = "block";
@@ -1150,6 +1584,9 @@ function openLeaderboard() {
 function closeLeaderboard() {
 	document.getElementById("overlay").style.display = "none";
 	document.getElementById("leaderboard").style.display = "none";
+	removedTimes = [];
+	document.getElementById("applyLeaderboardModifications").style.display = "none";
+	document.getElementById("leaderboard-content").innerHTML = "";
 }
 
 async function loadLeaderboardData() {
@@ -1186,6 +1623,13 @@ function displayLeaderboardData(data) {
 		const app = createApp(App)
 		app.use(pinia)
 		const userStore = useUserStore(pinia)
+		let maxDecimals = 0;
+		data.forEach((entry) => {
+			let decimals = entry.best_time.toString().split(".")[1];
+			if (decimals) {
+				maxDecimals = Math.max(maxDecimals, decimals.length);
+			}
+		});
 		data.forEach((entry, index) => {
 			const row = document.createElement("div");
 			row.className = "leaderboard-row";
@@ -1194,34 +1638,34 @@ function displayLeaderboardData(data) {
 			position.className = "leaderboard-position";
 			position.textContent = entry.position + 1;
 
-			const name = document.createElement("div");
+			const name = document.createElement("a");
 			name.className = "leaderboard-name";
 			name.textContent = entry.user_name;
+			name.href = `/levels?tab=tab_other_user&user_id=${entry.user_id}`;
 
 			const time = document.createElement("div");
 			time.className = "leaderboard-time";
-			time.textContent = entry.best_time;
+			let minutes = Math.floor(entry.best_time / 60);
+			let seconds = (entry.best_time % 60).toFixed(maxDecimals);
+			if (minutes < 10) { minutes = "0" + minutes; }
+			if (seconds < 10) { seconds = "0" + seconds; }
+			time.textContent = minutes + ':' + seconds;
 			
 			const button = document.createElement("button");
 			button.className = "leaderboard-button";
 			button.textContent = "x";
 			button.onclick = function () {
-				(async () => {
-					const urlParams = new URLSearchParams(window.location.search);
-					let levelIdentifier = urlParams.get('level');
-					let levelIdentifierParts = levelIdentifier.split(':')
-					const endpointUrl = config.SERVER_URL + 'statistics_remove_user/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?user_id=' + entry.user_id;
-					try {
-						const response = await fetch(endpointUrl, {headers: {'Authorization': 'Bearer ' + userStore.accessToken}});
-						if (response.ok) {
-							row.remove();
-						} else {
-							alert("Failed to remove user");
-						}
-					} catch (error) {
-						alert("Error removing user");
+				for (let i = 0; i < removedTimes.length; i++) {
+					if (removedTimes[i][0] === entry.user_id) {
+						removedTimes[i][1].classList.remove("leaderboard-row-removed");
+						removedTimes.splice(i, 1);
+						document.getElementById("applyLeaderboardModifications").style.display = removedTimes.length > 0 ? "block" : "none";
+						return;
 					}
-				})();
+				}
+				removedTimes.push([entry.user_id, row]);
+				row.classList.add("leaderboard-row-removed");
+				document.getElementById("applyLeaderboardModifications").style.display = "block";
 			};
 			
 
@@ -1232,4 +1676,28 @@ function displayLeaderboardData(data) {
 			leaderboardContent.appendChild(row);
 		});
 	}
+}
+async function removeLeaderboardTimes() {
+	const pinia = createPinia()
+	pinia.use(piniaPluginPersistedstate)
+	const app = createApp(App)
+	app.use(pinia)
+	const userStore = useUserStore(pinia)
+	const urlParams = new URLSearchParams(window.location.search);
+	let levelIdentifier = urlParams.get('level');
+	let levelIdentifierParts = levelIdentifier.split(':')
+	for (let i = 0; i < removedTimes.length; i++) {
+		const endpointUrl = config.SERVER_URL + 'statistics_remove_user/' + levelIdentifierParts[0] + '/' + levelIdentifierParts[1] + '?user_id=' + removedTimes[i][0];
+		try {
+			const response = await fetch(endpointUrl, {headers: {'Authorization': 'Bearer ' + userStore.accessToken}});
+			if (response.ok) {
+				removedTimes[i][1].remove();
+			} else {
+				alert("Failed to remove user");
+			}
+		} catch (error) {
+			alert("Error removing user: " + error.message);
+		}
+	}
+	removedTimes = [];
 }

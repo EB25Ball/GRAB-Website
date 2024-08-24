@@ -1,13 +1,17 @@
-export async function listRequest(server, accessToken, listType, searchTerm, maxLevelFormatVersion, userID, nextPage) {
+export async function listRequest(server, accessToken, listType, difficulty, tag, searchTerm, maxLevelFormatVersion, userID, nextPage) {
   let requestURL = server + 'list?max_format_version=' + maxLevelFormatVersion
   let wantsAccessToken = false
   if(listType === 'tab_newest')
   {
-    if(searchTerm && searchTerm.length > 0) requestURL += '&type=search&search_term=' + searchTerm
+    if (searchTerm && searchTerm.length > 0) {
+      requestURL += '&type=search&search_term=' + searchTerm;
+    } else {
+      requestURL += '&type=' + (tag ? tag + '_' : '') + 'newest' + (difficulty ? '_' + difficulty : '')
+    }
   }
-  else if(listType === 'tab_ok')
+  else if(listType === 'tab_ok_newest')
   {
-    requestURL += '&type=ok'
+    requestURL += '&type=ok_' + (tag ? tag + '_' : '') + 'newest' + (difficulty ? '_' + difficulty : '')
   }
   else if(listType === 'tab_my_levels' || listType === 'tab_other_user')
   {
@@ -50,6 +54,15 @@ export async function listRequest(server, accessToken, listType, searchTerm, max
   else if (listType.includes('curated_'))
   {
     requestURL += `&type=${listType}`
+  }
+  else if (listType === 'tab_deletion_queue')
+  {
+    requestURL += '&type=deletionqueue'
+    wantsAccessToken = true
+  } else if (listType === 'tab_audit')
+  {
+    requestURL = server + 'report_list?type=audit'
+    wantsAccessToken = true
   }
 
   if(nextPage) requestURL += '&page_timestamp=' + nextPage

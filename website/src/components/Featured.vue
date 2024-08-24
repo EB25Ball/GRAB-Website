@@ -7,7 +7,6 @@ import ScrollList from './ScrollList.vue'
 
 export default {
   computed: {
-    ...mapState(useUserStore, ['isAdmin']),
     ...mapState(useUserStore, ['accessToken']),
     isSection() {
       return this.currentSection.hasOwnProperty('sections')
@@ -27,6 +26,7 @@ export default {
       currentSection: {},
       displayingLevels: false,
       sectionStack: [],
+      loaded: false,
     }
   },
 
@@ -70,7 +70,7 @@ export default {
         if (section.list_key.startsWith('builtin:')) {
           return false
         }
-        if (['ok', 'newest'].includes(section.list_key)) {
+        if (['ok_newest', 'newest'].includes(section.list_key)) {
           return false
         }
       }
@@ -90,6 +90,7 @@ export default {
     let featured = await this.loadFeatured();
     this.featured = featured;
     this.currentSection = this.featured;
+    this.loaded = true;
   },
 
 }
@@ -97,11 +98,11 @@ export default {
 
 <template>
   <div class="section-header">
-    <button v-if="this.currentSection !== this.featured" @click="this.handleBack">back</button>
+    <button v-if="loaded && this.currentSection !== this.featured" @click="this.handleBack">back</button>
     <h2 v-if="this.currentSection !== this.featured" class="section-title">{{ this.currentSection.hasOwnProperty("title_short") ? this.currentSection.title_short : this.currentSection.title }}</h2>
   </div>
   <div v-if="isList">
-    <ScrollList :listType="this.currentSection.list_key" :searchTerm="''" :otherUserID="null" @tab-changed="(query) => this.tabChanged(query)"/>
+    <ScrollList :listType="this.currentSection.list_key" :difficulty="''" :tag="''" :searchTerm="''" :otherUserID="null" @tab-changed="(query) => this.tabChanged(query)"/>
   </div>
   <div v-else-if="isSection" class="sections">
     <div class="section-element-title" v-for="section in this.currentSection.sections">
@@ -134,6 +135,7 @@ export default {
   }
   .section-button {
     cursor: pointer;
+    font-weight: 400;
   }
   .section-title, .section-element-title {
     color: white;

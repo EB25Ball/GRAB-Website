@@ -4,23 +4,27 @@ import { useUserStore } from '@/stores/user'
 
 import ModerationInfo from './ModerationInfo.vue'
 import ModerationPopup from './ModerationPopup.vue'
+import SetCreatorButton from './SetCreatorButton.vue'
+import SetVerifierButton from './SetVerifierButton.vue'
+import SetModeratorButton from './SetModeratorButton.vue'
 
 import { moderationActionRequest } from '../requests/ModerationActionRequest'
 import { removeModerationActionRequest } from '../requests/RemoveModerationActionRequest'
 
-import { setUserInfoAdmin } from '../requests/SetUserInfoAdmin'
-
-
 export default {
   components: {
     ModerationInfo,
-    ModerationPopup
+    ModerationPopup,
+    SetCreatorButton,
+    SetVerifierButton,
+    SetModeratorButton
   },
 
   emits: ['handled'],
 
   props: {
-    userInfo : Object
+    userInfo: Object,
+    userPage: Boolean
   },
 
   data() {
@@ -39,26 +43,15 @@ export default {
 
   methods: {
     handledModerationPopup(handled) {
-      if(handled === true)
-      {
+      if (handled === true) {
         this.$emit('handled', true)
       }
     },
 
-    async removeModerationAction()
-    {
+    async removeModerationAction() {
       const userID = this.userInfo.user_id
-      if(!await removeModerationActionRequest(this.$api_server_url, this.accessToken, userID)) return
+      if (!await removeModerationActionRequest(this.$api_server_url, this.accessToken, userID)) return
       this.$emit('handled', false)
-    },
-
-    async makeVerifier()
-    {
-      if(confirm("Do you really want to make this user a Verifier?"))
-      {
-        const userID = this.userInfo.user_id
-        await setUserInfoAdmin(this.$api_server_url, this.accessToken, userID, true)
-      }
     }
   }
 }
@@ -66,16 +59,19 @@ export default {
 
 <template>
   <div class="moderation-tools">
-    <div v-if="userInfo.moderation_info" class="moderation-title">Current Strike:</div>
-    <ModerationInfo v-if="userInfo.moderation_info" :info="userInfo.moderation_info"/>
-
+    <div v-if="userInfo.moderation_info && !userPage" class="moderation-title">Current Strike:</div>
+    <ModerationInfo v-if="userInfo.moderation_info && !userPage" :info="userInfo.moderation_info"/>
     <br>
-    <button class="moderation-hide-button" @click="showModerationPopup=true">Punish</button>
-    <button class="moderation-approve-button" @click="removeModerationAction">Remove Strike</button>
-
-    <br><br>
-    <button class="moderation-approve-button" @click="makeVerifier">Make Verifier</button>
-
+    <div class="punish-buttons">
+      <button class="moderation-hide-button" @click="showModerationPopup=true">Punish</button>
+      <button class="moderation-approve-button" @click="removeModerationAction">Remove Strike</button>
+    </div>
+    <br>
+    <div class="promote-buttons" v-if="!userPage">
+      <SetCreatorButton :userID="this.userInfo.user_id" :isCreator="this.userInfo.is_creator"/>
+      <SetVerifierButton :userID="this.userInfo.user_id" :isVerifier="this.userInfo.is_verifier"/>
+      <SetModeratorButton :userID="this.userInfo.user_id" :isModerator="this.userInfo.is_moderator"/>
+    </div>
   </div>
 
   <Teleport to="body">
@@ -91,6 +87,20 @@ export default {
   padding-bottom: 5%;
 }
 
+.punish-buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  gap: 0.5em;
+}
+
+.promote-buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  gap: 0.5em;
+}
+
 .moderation-title {
   font-weight: bold;
 }
@@ -103,8 +113,6 @@ export default {
   color: white;
   border: none;
   border-radius: 15px;
-  margin-left: 17.5%;
-  margin-right: 5%;
   cursor: pointer;
 }
 

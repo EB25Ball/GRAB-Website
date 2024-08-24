@@ -1,9 +1,12 @@
 <script>
 import { mapState } from 'pinia'
 import { useUserStore } from '@/stores/user'
+
 import CurationControls from './CurationControls.vue'
 import NewCurationButton from './NewCurationButton.vue'
 import RemoveCurationButton from './RemoveCurationButton.vue'
+import Terms from './Terms.vue'
+
 import { GetCuratedListsRequest } from '../requests/GetCuratedListsRequest';
 
 export default {
@@ -11,6 +14,7 @@ export default {
 	CurationControls,
 	NewCurationButton,
 	RemoveCurationButton,
+	Terms,
   },
 
   computed: {
@@ -65,19 +69,77 @@ export default {
 </script>
 
 <template>
-  <a class="back-button" href="/levels">Back</a>
-  <h1>Curated Level Lists</h1>
-	<div v-if="isAdmin" id="buttonWrapper">
-		<NewCurationButton @handled="handleTypeListUpdate"/>
-		<RemoveCurationButton @handled="handleTypeListUpdate"/>
+	<div id="curation">
+		<a class="back-button" href="/levels">Back</a>
+		<header>
+			<h1>Curated Level Lists</h1>
+			<div id="list-control">
+				<div v-if="isAdmin" id="buttonWrapper">
+					<NewCurationButton @handled="handleTypeListUpdate"/>
+					<RemoveCurationButton @handled="handleTypeListUpdate"/>
+				</div>
+				<select id="typeSelector" @change="handleTypeChange"></select>
+			</div>
+		</header>
+		<main>
+			<CurationControls :type="type"/>
+		</main>
+		<Terms/>
 	</div>
-	<div id="typeSelectorWrapper">
-		<select id="typeSelector" @change="handleTypeChange"></select>
-	</div>
-	<CurationControls :type="type"/>
 </template>
 
 <style scoped>
+
+#curation {
+	padding: 2rem;
+	font-weight: normal;
+
+	height: 100svh;
+	max-height: 100svh;
+	margin: 0 auto;
+	color: var(--color-text);
+	background: var(--color-background);
+	line-height: 1.6;
+	font-family: 'Roboto', sans-serif;
+	font-size: 15px;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+
+	display: grid;
+	grid-template-rows: 150px auto;
+}
+
+#curation header {
+	max-width: 1000px;
+	margin: 0 auto;
+	display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+	width: 100%;
+	padding-inline: 2rem;
+}
+
+#list-control {
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-end;
+	align-items: center;
+	width: 100%;
+	padding-bottom: 1rem;
+}
+
+main {
+	max-width: 1000px;
+	margin: 0 auto;
+	display: grid;
+	grid-template-columns: auto 200px;
+	width: 100%;
+	height: 100%;
+	max-height: calc(100svh - 150px - 4rem);
+}
+
 ::-webkit-scrollbar {
 	display: none;
 }
@@ -92,36 +154,31 @@ body {
 	font-family: 'Roboto', sans-serif;
 }
 h1 {
-	margin-bottom: 20px;
+	margin: 0;
 	text-align: center;
 	font-size: 32px;
-	padding-top: 15px;
-	padding-bottom: 15px;
+	padding: 0;
 }
 select:focus-visible {
 	outline: none;
-}
-#typeSelectorWrapper {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	margin-bottom: 20px;
 }
 #typeSelector {
 	font-size: 20px;
 	text-align: center;
 	display: block;
-	margin-left: 10px;
-	padding: 10px;
+	padding-inline: 10px;
 	border-radius: 10px;
 	border: 2px solid #ccc;
-	flex: 1;
+	margin: 0 auto;
+	width: 100%;
+	height: 40px;
 }
 #buttonWrapper {
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
 	margin-bottom: 10px;
+	width: 100%;
 }
 .button {
 	font-size: 20px;
@@ -137,12 +194,14 @@ select:focus-visible {
 .back-button {
 	font-size: 20px;
 	padding: 10px 20px;
-	margin-left: 10px;
 	color: #fff;
 	background-color: #00bc87;
 	cursor: pointer;
 	font-weight: bold;
 	border: none;
 	border-radius: 15px;
+	position: absolute;
+	top: 10px;
+	left: 10px;
 }
 </style>

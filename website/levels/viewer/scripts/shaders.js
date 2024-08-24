@@ -64,7 +64,10 @@ export const levelFS = `
     uniform float tileFactor;
     uniform vec3 diffuseColor;
     uniform float neonEnabled;
+	uniform float transparentEnabled;
     uniform float fogEnabled;
+	uniform float isLava;
+	uniform float isColoredLava;
 
     uniform vec2 cameraFogDistance;
     uniform vec3 cameraFogColor0;
@@ -77,22 +80,31 @@ export const levelFS = `
     void main()
     {
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+		vec4 texColor = vec4(0.0, 0.0, 0.0, 1.0);
 
         vec3 blendNormals = abs(vNormal);
         if(blendNormals.x > blendNormals.y && blendNormals.x > blendNormals.z)
         {
-            color.rgb = texture2D(colorTexture, vWorldPosition.zy * tileFactor).rgb;
+            texColor.rgb = texture2D(colorTexture, vWorldPosition.zy * tileFactor).rgb;
         }
         else if(blendNormals.y > blendNormals.z)
         {
-            color.rgb = texture2D(colorTexture, vWorldPosition.xz * tileFactor).rgb;
+            texColor.rgb = texture2D(colorTexture, vWorldPosition.xz * tileFactor).rgb;
         }
         else
         {
-            color.rgb = texture2D(colorTexture, vWorldPosition.xy * tileFactor).rgb;
+            texColor.rgb = texture2D(colorTexture, vWorldPosition.xy * tileFactor).rgb;
         }
 
-        color.rgb *= diffuseColor;
+		color.rgb = texColor.rgb * diffuseColor;
+
+		if (isColoredLava > 0.5) {
+			vec3 blendValues = vec3(texColor.b);
+			color.rgb = mix(diffuseColor.rgb, specularColor.rgb, blendValues.b);
+			color.rgb += blendValues.g * 0.1 - (1.0 - blendValues.r) * 0.2;
+		} else if (isLava > 0.5) {
+			color.rgb = vec3(color.rg, 0);
+		}
 
         vec3 cameraToVertex = vWorldPosition - cameraPosition;
 	    float distanceToCamera = length(cameraToVertex);
@@ -130,6 +142,10 @@ export const levelFS = `
             float fogAmount = clamp((1.0 - exp(-distanceToCamera * cameraFogDistance.x)) * cameraFogDistance.y, 0.0, 1.0);
             color.rgb = mix(color.rgb, fogColor, fogAmount * fogAmount);
         }
+
+		if(transparentEnabled > 0.5) {
+			color.a = 0.5;
+		}
 
         gl_FragColor = color;
 

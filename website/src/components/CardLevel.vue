@@ -1,24 +1,32 @@
 <script>
+import { GetLevelReportInfoRequest } from "../requests/GetLevelReportInfoRequest.js";
+
 import { mapState } from 'pinia'
 import { useUserStore } from '@/stores/user'
 
+import VLazyImage from 'v-lazy-image'
 import ReportModerationTools from './ReportModerationTools.vue'
 import VerifyLevelButton from './VerifyLevelButton.vue'
 import SkipLevelButton from './SkipLevelButton.vue'
 import HideLevelButton from './HideLevelButton.vue'
+import HideTipLevelButton from './HideTipLevelButton.vue'
 import UnhideLevelButton from './UnhideLevelButton.vue'
 import FavoriteLevelButton from './FavoriteLevelButton.vue'
 import ReportLevelButton from './ReportLevelButton.vue'
+import UnscheduleDeletionButton from './UnscheduleDeletionButton.vue'
 
 export default {
   components: {
     ReportModerationTools,
     VerifyLevelButton,
     SkipLevelButton,
+    VLazyImage,
     HideLevelButton,
+    HideTipLevelButton,
     UnhideLevelButton,
     FavoriteLevelButton,
-    ReportLevelButton
+    ReportLevelButton,
+    UnscheduleDeletionButton
   },
 
   emit: ['more'],
@@ -32,7 +40,8 @@ export default {
 
   data() {
     return {
-      cardColor: 'white'
+      cardColor: 'white',
+      imageKeys: []
     }
   },
 
@@ -44,8 +53,19 @@ export default {
       return ''
     },
 
-     hasImage() {
+    tags() {
+      if(this.item.tags && this.item.tags.length > 0) {
+        return this.item.tags.filter(t => t !== 'ok')
+      }
+      return []
+    },
+
+    hasImage() {
       if(this.item.images && this.item.images.thumb)
+      {
+        return true
+      }
+      else if(this.moderationItem && this.moderationItem.image)
       {
         return true
       }
@@ -56,6 +76,10 @@ export default {
       return this.moderationItem? false : true
     },
 
+    hasDifficulty() {
+      return (this.listType !== "tab_favorite_levels")
+    },
+
     difficulty() {
       let difficulty = "unrated"
       let difficultyColor = "#969696"
@@ -63,24 +87,29 @@ export default {
       {
         if("difficulty" in this.item.statistics && "total_played" in this.item.statistics)
         {
-          if(this.item.statistics.difficulty !== 1.0 && this.item.statistics.total_played > 0)
+          if(this.item.statistics.difficulty_string)
           {
-            if(this.item.statistics.difficulty < 0.01)
+            if(this.item.statistics.difficulty_string == "impossible")
+            {
+              difficulty = "impossible"
+              difficultyColor = "#7f007f"
+            }
+            else if(this.item.statistics.difficulty_string == "veryhard")
             {
               difficulty = "very hard"
               difficultyColor = "#EA0000"
             }
-            else if(this.item.statistics.difficulty < 0.1)
+            else if(this.item.statistics.difficulty_string == "hard")
             {
               difficulty = "hard"
               difficultyColor = "#F19400"
             }
-            else if(this.item.statistics.difficulty < 0.4)
+            else if(this.item.statistics.difficulty_string == "medium")
             {
               difficulty = "medium"
               difficultyColor = "#E1C800"
             }
-            else
+            else if(this.item.statistics.difficulty_string == "easy")
             {
               difficulty = "easy"
               difficultyColor = "#2BBA84"
@@ -109,11 +138,16 @@ export default {
 
     ...mapState(useUserStore, ['isVerifier']),
     ...mapState(useUserStore, ['isAdmin']),
-    ...mapState(useUserStore, ['isLoggedIn'])
+    ...mapState(useUserStore, ['isSuperModerator']),
+    ...mapState(useUserStore, ['isLoggedIn']),
+    ...mapState(useUserStore, ['accessToken'])
   },
 
-  created() {
-    if(this.item.hidden === true) this.cardColor = 'lightcoral'
+  async created() {
+    if(this.item.hidden === true) this.cardColor = 'lightcoral';
+    if (this.hasImage && this.isModerationCell) {
+      this.imageKeys = await this.getReportImages();
+    }
   },
 
   methods: {
@@ -135,6 +169,19 @@ export default {
     setListIndex(index) {
       const userStore = useUserStore()
       userStore.setListIndex(index)
+    },
+
+    async getReportImages() {
+      const report_info = await GetLevelReportInfoRequest(this.$api_server_url, this.item.identifier, this.accessToken);
+      const keys = [];
+      if ("images" in report_info) {
+        for (let i in report_info.images) {
+          if (report_info.images[i].key) {
+            keys.push('https://grab-images.slin.dev/' + report_info.images[i].key);
+          }
+        }
+      }
+      return keys;
     }
   }
 }
@@ -142,25 +189,65 @@ export default {
 
 <template>
   <div class="level-card" :style="{'background-color': cardColor}">
-    <img v-if="hasImage" class="thumbnail" :src="this.$images_server_url + this.item.images.thumb.key" :width="this.item.images.thumb.width" :height="this.item.images.thumb.height" />
-    <div v-if="hasStatistics" :style="{color: difficulty.color}" class="difficulty">{{ difficulty.difficulty }}</div><div v-if="hasStatistics && item.statistics" class="plays">plays: {{ item.statistics.total_played }}</div><br v-if="hasStatistics">
+    <v-lazy-image v-if="hasImage && !isModerationCell" class="thumbnail" :intersection-options="{ rootMargin: '50%' }" :src="this.$images_server_url + this.item.images.thumb.key" :width="this.item.images.thumb.width" :height="this.item.images.thumb.height" />
+    <div v-if="hasImage && isModerationCell" :class="'moderation-images' + (this.imageKeys.length > 1 ? ' moderation-images-multiple' : '')">
+      <v-lazy-image v-for="image in this.imageKeys" class="thumbnail" :intersection-options="{ rootMargin: '50%' }" :src="image" width="512" height="288" />
+    </div>
+    <div v-if="hasStatistics && hasDifficulty" :style="{color: difficulty.color}" class="difficulty">{{ difficulty.difficulty }}</div>
+    <div v-if="hasStatistics && item.statistics" class="plays">plays: {{ item.statistics.total_played }}</div><br v-if="hasStatistics">
     <div class="title">{{ item.title }}</div>
+    <div class="tags">
+      <span v-if="tags != []" v-for="tag in tags" class="tag">{{ tag }}</span>  
+    </div>
     <div class="creators">{{ creators }}</div>
     <div class="more-button" @click="showMoreLevels">More Levels</div>
     <div class="description">{{ item.description }}</div>
-    <VerifyLevelButton v-if="isVerifier" :level-info="item"/>
+    <VerifyLevelButton v-if="isVerifier && this.listType !== 'tab_deletion_queue'" :level-info="item"/>
     <SkipLevelButton v-if="isVerifier && this.listType === 'tab_verify_queue'" :level-info="item"/>
-    <HideLevelButton v-if="isAdmin && !isModerationCell && !isHidden && this.listType !== 'tab_verify_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
-    <UnhideLevelButton v-if="isAdmin && !isModerationCell && isHidden && this.listType !== 'tab_verify_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
+    <HideLevelButton v-if="isSuperModerator && !isModerationCell && !isHidden && this.listType !== 'tab_verify_queue' && this.listType !== 'tab_deletion_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
+    <HideTipLevelButton v-if="isAdmin && !isModerationCell && !isHidden && this.listType !== 'tab_verify_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
+    <UnhideLevelButton v-if="isSuperModerator && !isModerationCell && isHidden && this.listType !== 'tab_verify_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
+    <UnscheduleDeletionButton v-if="isSuperModerator && this.listType === 'tab_deletion_queue'" :level_id="item.identifier" @handled="didHandleCell"/>
     <ReportModerationTools v-if="isModerationCell" :moderation-item="moderationItem" @handled="didHandleCell"/>
-    <FavoriteLevelButton v-if="isLoggedIn" :level_id="item.identifier"/>
-    <ReportLevelButton v-if="isLoggedIn" :level_id="item.identifier" />
+    <div class="interactions">
+      <FavoriteLevelButton v-if="isLoggedIn" :level_id="item.identifier"/>
+      <ReportLevelButton v-if="isLoggedIn" :level_id="item.identifier" />
+    </div>
     <a target="_blank" :href="viewerURL + (this.listType == 'tab_verify_queue' ? '&verify_queue' : '')" class="play-button" @click="setListIndex(index)">OPEN</a>
+
     <img v-if="hasOKStamp" alt="OK Stamp" class="stamp" src="./../assets/stamp_ok.png" width="453" height="180" />
   </div>
 </template>
 
 <style scoped>
+
+.moderation-images {
+  position: relative;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 0%;
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  overflow-y: hidden;
+  overflow-x: scroll;
+  display: flex;
+  flex-direction: row;
+}
+
+.moderation-images-multiple::after {
+  content: "...";
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin-top: 30%;
+  position: absolute;
+  color: #0007;
+  font-size: 60px;
+  text-align: center;
+}
+
 .level-card {
   width: 100%;
   height: 100%;
@@ -197,6 +284,22 @@ export default {
 .creators {
   font-size: 15px;
   font-style: italic;
+}
+
+.tags {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.tag {
+  font-size: 9px;
+  font-style: italic;
+  color: #001b29ca;
+  background-color: #cfeaf6;
+  padding: 0 8px;
+  border-radius: 50px;
 }
 
 .description {
@@ -256,13 +359,23 @@ export default {
   margin-left: auto;
   margin-right: auto;
   margin-top: 0%;
-  margin-button: 0%;
-  paadding-right: 20px;
   display: block;
   object-fit: contain;
   object-position: center;
   width: 100%;
   height: auto;
-  border-radius: 10px;
+  border-radius: 5px;
+}
+
+.interactions {
+  display: flex;
+  width: 27%;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 8%;
+  align-items: center;
+  position: absolute;
+  bottom: 5%;
+  left: 3%;
 }
 </style>

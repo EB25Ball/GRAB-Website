@@ -6,6 +6,7 @@ import { reportLevelRequest } from '../requests/ReportLevelRequest'
 import { hideLevelRequest } from '../requests/HideLevelRequest'
 import { resetReportsRequest } from '../requests/ResetReportsRequest'
 import { moderationActionRequest } from '../requests/ModerationActionRequest'
+import { GetLevelDetailsRequest } from '../requests/GetLevelDetailsRequest'
 
 export default {
   emits: ['close', 'handled'],
@@ -17,7 +18,9 @@ export default {
 
   data() {
     return {
-      currentSelection: ''
+      currentSelection: '',
+      banDuration: undefined,
+      message: ''
     }
   },
 
@@ -29,10 +32,10 @@ export default {
           {reason: 'level_violence', title: 'Detailed Violence'},
           {reason: 'level_hatespeech', title: 'Inappropriate Language'},
           {reason: 'level_loweffort', title: 'Very low effort level'},
-          {reason: 'level_glitch', title: 'Requires to use a Glitch to finish'},
+          {reason: 'level_tips', title: 'Asking for Tips'},
           {reason: 'level_other', title: 'Other'}]
 
-          if(this.isAdmin && this.config === "level_hide") {
+          if(this.isSuperModerator && this.config === "level_hide") {
             reasons.push({reason: 'no_punish', title: 'Don\'t punish'})
           }
 
@@ -43,28 +46,50 @@ export default {
         return [{reason: 'user_hatespeech', title: 'Inappropriate Language'},
           {reason: 'user_behavior', title: 'Inappropriate Behavior'},
           {reason: 'user_noise', title: 'Loud music / Screeching / other weird noises'},
+          {reason: 'user_editor', title: 'Building inappropriate things in the editor'},
+          {reason: 'user_tips', title: 'Repeatedly asking for Tips'},
           {reason: 'user_other', title: 'Other'}]
       }
     },
 
     ...mapState(useUserStore, ['accessToken']),
-    ...mapState(useUserStore, ['isAdmin'])
+    ...mapState(useUserStore, ['isSuperModerator'])
   },
 
   methods: {
     async doModerationAction() {
-      const reason = this.currentSelection
+      const reason = this.currentSelection;
       this.$emit('close')
       if(this.config === 'level_hide')
       {
-        if(!await hideLevelRequest(this.$api_server_url, this.accessToken, this.identifier)) return
+        if(!await hideLevelRequest(this.$api_server_url, this.accessToken, this.identifier)) return //Hide the level and reset reports on it
 
-        if(reason !== 'no_punish')
+        let noPunish = (reason === 'no_punish')
+        if(reason === 'level_tips')
         {
-          const userID = this.identifier.split(':')[0]
-          if(!await moderationActionRequest(this.$api_server_url, this.accessToken, userID, reason)) return
-          if(!await resetReportsRequest(this.$api_server_url, this.accessToken, userID)) return
+          const result = await GetLevelDetailsRequest(this.$api_server_url, this.identifier)
+          if(result) {
+              if("levellist_newest_key" in result)
+              {
+                const reverseTimestamp = result.levellist_newest_key.split(":")[0]
+                const timestamp = 8640000000000000 - reverseTimestamp
+                const banDate = new Date('April 15, 2024 00:00:00');
+                if(timestamp < banDate)
+                {
+                  noPunish = true
+                }
+              }
+          }
         }
+
+        const userID = this.identifier.split(':')[0]
+
+        if(!noPunish || this.message)
+        {
+          if(!await moderationActionRequest(this.$api_server_url, this.accessToken, userID, reason, 0, this.message)) return
+        }
+
+        if(!await resetReportsRequest(this.$api_server_url, this.accessToken, userID)) return //This just resets reports on the user (since a moderation action is being taken on them alread)
       }
       else if(this.config === 'level_report')
       {
@@ -72,7 +97,8 @@ export default {
       }
       else if(this.config === 'user_ban')
       {
-        if(!await moderationActionRequest(this.$api_server_url, this.accessToken, this.identifier, reason)) return
+        const duration = this.banDuration * 24 * 60 * 60;
+        if(!await moderationActionRequest(this.$api_server_url, this.accessToken, this.identifier, reason, duration)) return
         if(!await resetReportsRequest(this.$api_server_url, this.accessToken, this.identifier)) return
       }
       this.$emit('handled', true)
@@ -98,6 +124,9 @@ export default {
               {{ reason.title }}
               </option>
             </select>
+
+            <textarea v-if="config==='level_hide'" v-model="message" id="message" placeholder="Optional Message"></textarea>
+            <input v-if="config==='user_ban'" v-model="banDuration" type="number" style="width: 70%" placeholder="Duration (days)">
           </form>
         </div>
 
@@ -111,6 +140,15 @@ export default {
 </template>
 
 <style scoped>
+
+#message {
+  width: 100%;
+  height: 60px;
+  resize: none;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
 .modal-mask {
   position: fixed;
   z-index: 9998;
