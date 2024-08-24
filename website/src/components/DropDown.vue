@@ -57,30 +57,40 @@
   }
   
   .dropdown-button {
-    padding: 10px 20px;
+    padding: 8px 40px;
     cursor: pointer;
-    background-color: #3498db;
+    background-color: #4641be;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 15px;
   }
   
   .dropdown-content {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     position: absolute;
-    background-color: white;
+    background-color: #322e8b;
+    color: white;
     min-width: 160px;
     box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
     z-index: 1;
+    right: 0;
+    border-radius: 10px;
+    padding: 3px;
+    gap: 2px;
   }
   
   .dropdown-item {
     padding: 12px 16px;
     cursor: pointer;
+    background-color: #3f3cab;
+    width: 100%;
+    border-radius: 10px;
   }
   
   .dropdown-item:hover {
-    background-color: #f1f1f1;
+    background-color: #322e8b;
   }
   </style>
   
