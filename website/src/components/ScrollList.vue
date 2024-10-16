@@ -3,6 +3,7 @@ import CardLevel from './CardLevel.vue'
 import CardUser from './CardUser.vue'
 import CardLog from './CardLog.vue'
 import DropDown from './DropDown.vue'
+import { provide } from 'vue'
 
 import { listRequest } from '../requests/ListRequest.js'
 import { resetReportsRequest } from '../requests/ResetReportsRequest'
@@ -278,7 +279,7 @@ export default {
     <div v-for="(item, index) in sortedItems" :key="index" class="grid-item" v-show="listType == 'tab_reported_levels'?filterByReason(item):true" >
       <CardUser v-if="wantsUserCells" :item="'object_info' in item? item.object_info : item" :moderationItem="'object_info' in item? item : null" @profile="showOtherUserLevels" />
       <CardLog v-else-if="listType == 'tab_audit'" :item="item" />
-      <CardLevel v-else :item="'object_info' in item? item.object_info : item" :moderationItem="'object_info' in item? item : null" :index="index" :listType="listType" @more="showOtherUserLevels" />
+      <CardLevel v-else :item="'object_info' in item? item.object_info : item" :moderationItem="'object_info' in item? item : null" :bestReason="bestReason(item)" :index="index" :listType="listType" @more="showOtherUserLevels" />
     </div>
   </div>
   <div v-if="loading" class="loading">Loading more items...</div>

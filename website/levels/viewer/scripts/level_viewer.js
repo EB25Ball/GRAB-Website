@@ -36,6 +36,8 @@ import textureGrabbableCrumblingURL from '../textures/grabbable_crumbling.png'
 import textureDefaultColoredURL from '../textures/default_colored.png'
 import textureBouncingURL from '../textures/bouncing.png'
 
+
+
 let userID = undefined;
 
 let clock, camera, scene, renderer, controls;
@@ -1024,7 +1026,7 @@ function init()
 								return finalStr.trim();  
 							}
 
-							fontLoader.load('./scripts/Roboto_Regular.json', function (font) {
+							fontLoader.load(import.meta.env.BASE_URL+'./levels/viewer/scripts/Roboto_Regular.json', function (font) {
 								const processedText = processString(signText);
 
 								const lines = processedText.split('\n');
