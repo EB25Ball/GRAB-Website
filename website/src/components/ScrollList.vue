@@ -3,7 +3,6 @@ import CardLevel from './CardLevel.vue'
 import CardUser from './CardUser.vue'
 import CardLog from './CardLog.vue'
 import DropDown from './DropDown.vue'
-import { provide } from 'vue'
 
 import { listRequest } from '../requests/ListRequest.js'
 import { resetReportsRequest } from '../requests/ResetReportsRequest'

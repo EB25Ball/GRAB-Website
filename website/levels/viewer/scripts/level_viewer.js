@@ -36,8 +36,6 @@ import textureGrabbableCrumblingURL from '../textures/grabbable_crumbling.png'
 import textureDefaultColoredURL from '../textures/default_colored.png'
 import textureBouncingURL from '../textures/bouncing.png'
 
-
-
 let userID = undefined;
 
 let clock, camera, scene, renderer, controls;
